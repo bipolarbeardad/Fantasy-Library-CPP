@@ -2,6 +2,7 @@
 
 #include "Combat.h"
 #include "Enemy.h"
+#include "FinalBoss.h"
 #include "GameFont.h"
 #include "MainMenu.h"
 #include "MemorySystem.h"
@@ -22,13 +23,20 @@ namespace
     constexpr int FPS = 60;
     constexpr int MAX_HEALTH = 3;
 
+    // ID 1125 is reserved exclusively for The Stained Author.
+    constexpr int FINAL_WORD_ID = 1125;
+    constexpr int FINAL_NORMAL_WORD_COUNT = 1209;
+
     enum class GameState
     {
         Menu,
         Adventure,
         Story,
         Memory,
-        MemoryLibrary
+        MemoryLibrary,
+        FinalBossIntro,
+        FinalBoss,
+        Ending
     };
 
 
@@ -81,6 +89,8 @@ namespace
     MainMenu menu;
 
     MemorySystem memorySystem;
+
+    FinalBoss finalBoss;
 
     WordManager wordManager;
 
@@ -200,6 +210,20 @@ namespace
     bool memoryReturnsToAdventure = false;
 
     bool memoryShouldAdvanceWave = false;
+
+
+    int endingStep = 0;
+
+    int finalBossIntroStep = 0;
+
+    bool finalBossGameOver = false;
+
+    int finalBossGameOverSelected = 0;
+
+
+    // Forward declaration because the final boss retry/menu
+    // handler uses this before its full definition later.
+    void ReturnToMainMenu();
 
 
     bool ContainsId(
@@ -1124,6 +1148,13 @@ namespace
                     .recoveredWordIds;
 
 
+            // TheEnd belongs only to The Stained Author.
+            AddUniqueId(
+                excluded,
+                FINAL_WORD_ID
+            );
+
+
             for (
                 int id
                 :
@@ -1636,6 +1667,828 @@ namespace
     }
 
 
+    std::string NormalizeTypingText(
+        const std::string& value
+    );
+
+
+    void StartFinalBoss()
+    {
+        enemies.clear();
+
+        reservedWordIds.clear();
+
+        ResetWaveQueueState();
+
+        combat.ClearInput();
+
+
+        finalBoss.Reset();
+
+        playerHealth =
+            MAX_HEALTH;
+
+        healProgress =
+            0;
+
+        finalBossGameOver =
+            false;
+
+        finalBossGameOverSelected =
+            0;
+
+        finalBossIntroStep = 0;
+
+        currentState =
+            GameState::FinalBossIntro;
+    }
+
+
+    void BeginEnding()
+    {
+        endingStep = 0;
+
+        combat.ClearInput();
+
+        currentState =
+            GameState::Ending;
+    }
+
+
+    void FinishFinalBoss()
+    {
+        if (
+            !ContainsId(
+                saveData.recoveredWordIds,
+                FINAL_WORD_ID
+            )
+        )
+        {
+            saveData
+                .recoveredWordIds
+                .push_back(
+                    FINAL_WORD_ID
+                );
+
+
+            saveData.wordsRecovered =
+                static_cast<int>(
+                    saveData
+                    .recoveredWordIds
+                    .size()
+                );
+        }
+
+
+        SaveProgress();
+
+
+        if (storyReader)
+        {
+            storyReader
+                ->SetRecoveredWords(
+                    saveData.recoveredWordIds
+                );
+        }
+
+
+        BeginEnding();
+    }
+
+
+    void HandleFinalBossIntroInput()
+    {
+        if (
+            !IsKeyPressed(KEY_ENTER)
+            &&
+            !IsKeyPressed(KEY_SPACE)
+        )
+        {
+            return;
+        }
+
+
+        finalBossIntroStep++;
+
+
+        if (finalBossIntroStep >= 3)
+        {
+            combat.ClearInput();
+
+            currentState =
+                GameState::FinalBoss;
+        }
+    }
+
+
+    void DrawFinalBossIntro()
+    {
+        ClearBackground(
+            Color{
+                5,
+                5,
+                10,
+                255
+            }
+        );
+
+
+        const char* introLines[] =
+        {
+            "The final page turns.",
+            "Something is waiting.",
+            "THE STAINED AUTHOR"
+        };
+
+
+        for (
+            int index = 0;
+            index <= finalBossIntroStep
+            &&
+            index < 3;
+            index++
+        )
+        {
+            const int fontSize =
+                index == 2
+                ?
+                46
+                :
+                28;
+
+
+            DrawGameText(
+                introLines[index],
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    introLines[index],
+                    fontSize
+                )
+                /
+                2,
+                190 + index * 75,
+                fontSize,
+                index == 2
+                ?
+                Color{
+                    230,
+                    205,
+                    145,
+                    255
+                }
+                :
+                Color{
+                    210,
+                    210,
+                    215,
+                    255
+                }
+            );
+        }
+
+
+        DrawGameText(
+            finalBossIntroStep >= 2
+            ?
+            "ENTER - Face the Author"
+            :
+            "ENTER - Continue",
+            GetScreenWidth() / 2
+            -
+            MeasureGameText(
+                finalBossIntroStep >= 2
+                ?
+                "ENTER - Face the Author"
+                :
+                "ENTER - Continue",
+                20
+            )
+            /
+            2,
+            GetScreenHeight() - 55,
+            20,
+            Color{
+                150,
+                145,
+                155,
+                255
+            }
+        );
+    }
+
+
+    void UpdateFinalBoss()
+    {
+        if (finalBossGameOver)
+        {
+            if (
+                IsKeyPressed(KEY_W)
+                ||
+                IsKeyPressed(KEY_UP)
+                ||
+                IsKeyPressed(KEY_S)
+                ||
+                IsKeyPressed(KEY_DOWN)
+            )
+            {
+                finalBossGameOverSelected =
+                    (
+                        finalBossGameOverSelected
+                        +
+                        1
+                    )
+                    %
+                    2;
+            }
+
+
+            if (IsKeyPressed(KEY_ENTER))
+            {
+                if (
+                    finalBossGameOverSelected
+                    ==
+                    0
+                )
+                {
+                    playerHealth =
+                        MAX_HEALTH;
+
+
+                    combat.ClearInput();
+
+
+                    finalBoss.Reset();
+
+
+                    finalBossGameOver =
+                        false;
+
+
+                    finalBossGameOverSelected =
+                        0;
+                }
+
+                else
+                {
+                    ReturnToMainMenu();
+                }
+            }
+
+
+            return;
+        }
+
+
+        const bool playerHit =
+            finalBoss.Update();
+
+
+        if (playerHit)
+        {
+            playerHealth--;
+
+
+            combat.ClearInput();
+
+
+            if (playerHealth <= 0)
+            {
+                playerHealth =
+                    0;
+
+
+                finalBossGameOver =
+                    true;
+
+
+                finalBossGameOverSelected =
+                    0;
+
+
+                return;
+            }
+        }
+
+
+        if (
+            finalBoss.IsReacting()
+            ||
+            finalBoss.IsSlashing()
+        )
+        {
+            combat.ClearInput();
+
+            return;
+        }
+
+
+        combat.HandleInput();
+
+
+        const std::string typed =
+            NormalizeTypingText(
+                combat.GetInput()
+            );
+
+
+        const std::string target =
+            NormalizeTypingText(
+                finalBoss.GetCurrentWord()
+            );
+
+
+        if (
+            !typed.empty()
+            &&
+            typed == target
+        )
+        {
+            combat.ClearInput();
+
+
+            const bool finished =
+                finalBoss
+                    .CompleteCurrentWord();
+
+
+            if (finished)
+            {
+                FinishFinalBoss();
+            }
+        }
+    }
+
+
+    void DrawFinalBoss()
+    {
+        ClearBackground(
+            Color{
+                7,
+                6,
+                12,
+                255
+            }
+        );
+
+
+        // Keep the Word Seeker visible during the final battle.
+        // The Stained Author remains centered as the focal point.
+        DrawPlayer();
+
+
+        // The Word Seeker still has three hearts in the final fight.
+        for (
+            int index = 0;
+            index < MAX_HEALTH;
+            index++
+        )
+        {
+            DrawHeart(
+                35
+                +
+                index * 35,
+                30,
+                index
+                <
+                playerHealth
+            );
+        }
+
+
+        finalBoss.Draw();
+
+
+        if (finalBossGameOver)
+        {
+            DrawRectangle(
+                0,
+                0,
+                GetScreenWidth(),
+                GetScreenHeight(),
+                Color{
+                    0,
+                    0,
+                    0,
+                    215
+                }
+            );
+
+
+            const char* title =
+                "The story has come to a close, for now.";
+
+
+            DrawGameText(
+                title,
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    title,
+                    36
+                )
+                /
+                2,
+                210,
+                36,
+                Color{
+                    235,
+                    220,
+                    175,
+                    255
+                }
+            );
+
+
+            const char* options[] =
+            {
+                "Face The Stained Author Again",
+                "Main Menu"
+            };
+
+
+            for (
+                int index = 0;
+                index < 2;
+                index++
+            )
+            {
+                const Color color =
+                    index
+                    ==
+                    finalBossGameOverSelected
+                    ?
+                    Color{
+                        255,
+                        225,
+                        90,
+                        255
+                    }
+                    :
+                    Color{
+                        235,
+                        235,
+                        235,
+                        255
+                    };
+
+
+                DrawGameText(
+                    options[index],
+                    GetScreenWidth() / 2
+                    -
+                    MeasureGameText(
+                        options[index],
+                        28
+                    )
+                    /
+                    2,
+                    290
+                    +
+                    index * 48,
+                    28,
+                    color
+                );
+            }
+
+
+            return;
+        }
+
+
+        if (finalBoss.IsReacting())
+        {
+            return;
+        }
+
+
+        if (finalBoss.IsSlashing())
+        {
+            return;
+        }
+
+
+        std::string target =
+            finalBoss.GetCurrentWord();
+
+
+        std::string typed =
+            combat.GetInput();
+
+
+        for (char& character : target)
+        {
+            if (
+                character >= 'a'
+                &&
+                character <= 'z'
+            )
+            {
+                character =
+                    static_cast<char>(
+                        character - 'a' + 'A'
+                    );
+            }
+        }
+
+
+        for (char& character : typed)
+        {
+            if (
+                character >= 'a'
+                &&
+                character <= 'z'
+            )
+            {
+                character =
+                    static_cast<char>(
+                        character - 'a' + 'A'
+                    );
+            }
+        }
+
+
+        bool correctPrefix =
+            typed.size()
+            <=
+            target.size();
+
+
+        if (correctPrefix)
+        {
+            correctPrefix =
+                target.compare(
+                    0,
+                    typed.size(),
+                    typed
+                )
+                ==
+                0;
+        }
+
+
+        int highlightedCount =
+            0;
+
+
+        if (correctPrefix)
+        {
+            highlightedCount =
+                static_cast<int>(
+                    typed.size()
+                );
+        }
+
+
+        const std::string completed =
+            target.substr(
+                0,
+                highlightedCount
+            );
+
+
+        const std::string remaining =
+            target.substr(
+                highlightedCount
+            );
+
+
+        const int fontSize =
+            34;
+
+
+        const int totalWidth =
+            MeasureGameText(
+                target,
+                fontSize
+            );
+
+
+        const int startX =
+            GetScreenWidth() / 2
+            -
+            totalWidth / 2;
+
+
+        // Correctly typed letters turn gold.
+        DrawGameText(
+            completed,
+            startX,
+            GetScreenHeight() - 83,
+            fontSize,
+            Color{
+                255,
+                215,
+                80,
+                255
+            }
+        );
+
+
+        // The rest of the target remains white.
+        // If the player mistypes, the entire target stays white.
+        DrawGameText(
+            remaining,
+            startX
+            +
+            MeasureGameText(
+                completed,
+                fontSize
+            ),
+            GetScreenHeight() - 83,
+            fontSize,
+            Color{
+                220,
+                220,
+                220,
+                255
+            }
+        );
+
+
+        // Give immediate feedback for an incorrect input
+        // without pretending those letters damaged the boss.
+        if (
+            !typed.empty()
+            &&
+            !correctPrefix
+        )
+        {
+            DrawGameText(
+                typed,
+                playerX
+                -
+                MeasureGameText(
+                    typed,
+                    22
+                )
+                /
+                2,
+                playerY + 55,
+                22,
+                Color{
+                    210,
+                    90,
+                    90,
+                    255
+                }
+            );
+        }
+    }
+
+
+    void HandleEndingInput()
+    {
+        if (
+            !IsKeyPressed(KEY_ENTER)
+            &&
+            !IsKeyPressed(KEY_SPACE)
+        )
+        {
+            return;
+        }
+
+
+        endingStep++;
+
+
+        if (endingStep >= 6)
+        {
+            // The boss has been faced and the final
+            // exchange has happened. SAFE is now earned.
+            saveData.memoryStage =
+                std::max(
+                    saveData.memoryStage,
+                    10
+                );
+
+
+            SaveProgress();
+
+
+            memorySystem.BeginFragment(
+                9
+            );
+
+
+            memoryReturnsToAdventure =
+                false;
+
+
+            memoryShouldAdvanceWave =
+                false;
+
+
+            currentState =
+                GameState::Memory;
+        }
+    }
+
+
+    void DrawEnding()
+    {
+        ClearBackground(
+            Color{
+                8,
+                8,
+                14,
+                255
+            }
+        );
+
+
+        const char* lines[] =
+        {
+            "The Stained Author stops.",
+            "\"That was all I was ever supposed to be.\"",
+            "No.",
+            "\"That was where you were supposed to be.\"",
+            "\"Not what you were supposed to be.\"",
+            "I remembered your place."
+        };
+
+
+        DrawGameText(
+            "THE END",
+            GetScreenWidth() / 2
+            -
+            MeasureGameText(
+                "THE END",
+                42
+            )
+            /
+            2,
+            70,
+            42,
+            Color{
+                225,
+                210,
+                165,
+                255
+            }
+        );
+
+
+        for (
+            int index = 0;
+            index <= endingStep
+            &&
+            index < 6;
+            index++
+        )
+        {
+            DrawGameText(
+                lines[index],
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    lines[index],
+                    25
+                )
+                /
+                2,
+                165 + index * 45,
+                25,
+                Color{
+                    225,
+                    225,
+                    220,
+                    255
+                }
+            );
+        }
+
+
+        DrawGameText(
+            endingStep >= 5
+            ?
+            "ENTER - Remember"
+            :
+            "ENTER - Continue",
+            GetScreenWidth() / 2
+            -
+            MeasureGameText(
+                endingStep >= 5
+                ?
+                "ENTER - Remember"
+                :
+                "ENTER - Continue",
+                19
+            )
+            /
+            2,
+            GetScreenHeight() - 48,
+            19,
+            Color{
+                155,
+                150,
+                160,
+                255
+            }
+        );
+    }
+
+
     void NewGame()
     {
         saveData
@@ -1841,6 +2694,25 @@ namespace
         }
 
 
+        // Once every normal word has returned, the final
+        // missing word can only come from The Stained Author.
+        if (
+            saveData.wordsRecovered
+            >=
+            FINAL_NORMAL_WORD_COUNT
+            &&
+            !ContainsId(
+                saveData.recoveredWordIds,
+                FINAL_WORD_ID
+            )
+        )
+        {
+            StartFinalBoss();
+
+            return;
+        }
+
+
         if (waveClearTimer <= 0)
         {
             waveClearTimer = 90;
@@ -1853,11 +2725,19 @@ namespace
 
             if (waveClearTimer <= 0)
             {
-                const int memoryIndex =
+                int memoryIndex =
                     memorySystem.GetNextMemoryIndex(
                         saveData.wordsRecovered,
                         saveData.memoryStage
                     );
+
+
+                // Memory X: SAFE is reserved for after
+                // The Stained Author has been faced.
+                if (memoryIndex == 9)
+                {
+                    memoryIndex = -1;
+                }
 
 
                 if (memoryIndex >= 0)
@@ -3202,6 +4082,36 @@ int main()
         }
 
 
+        else if (
+            currentState
+            ==
+            GameState::FinalBossIntro
+        )
+        {
+            HandleFinalBossIntroInput();
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::FinalBoss
+        )
+        {
+            UpdateFinalBoss();
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::Ending
+        )
+        {
+            HandleEndingInput();
+        }
+
+
         // -------------------------
         // DRAW
         // -------------------------
@@ -3261,6 +4171,36 @@ int main()
             memorySystem.DrawLibrary(
                 saveData.memoryStage
             );
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::FinalBossIntro
+        )
+        {
+            DrawFinalBossIntro();
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::FinalBoss
+        )
+        {
+            DrawFinalBoss();
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::Ending
+        )
+        {
+            DrawEnding();
         }
 
 

@@ -28,6 +28,7 @@ add_executable(
     src/StoryReader.cpp
     src/GameFont.cpp
     src/MemorySystem.cpp
+    src/FinalBoss.cpp
 )
 
 target_link_libraries(
