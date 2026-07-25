@@ -1,0 +1,72 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+
+struct MemoryFragment
+{
+    int threshold;
+    const char* title;
+    std::vector<std::string> lines;
+};
+
+
+class MemorySystem
+{
+public:
+    MemorySystem();
+
+    int GetMemoryCount() const;
+
+    int GetNextMemoryIndex(
+        int wordsRecovered,
+        int memoryStage
+    ) const;
+
+    void BeginPrologue();
+
+    void BeginFragment(
+        int index
+    );
+
+    // Returns true when the current memory has finished.
+    bool HandleFragmentInput();
+
+    void DrawFragment() const;
+
+    // Memory archive. Returns true when ESC exits to menu.
+    bool HandleLibraryInput(
+        int memoryStage
+    );
+
+    void DrawLibrary(
+        int memoryStage
+    ) const;
+
+    void ResetLibrary();
+
+
+private:
+    std::vector<MemoryFragment> memories;
+
+    int activeMemory;
+    int visibleLines;
+    bool showingPrologue;
+
+    int librarySelected;
+    bool libraryReading;
+
+    std::vector<std::string> prologueLines;
+
+    const MemoryFragment* GetActiveFragment() const;
+
+    static void DrawCentered(
+        const std::string& text,
+        int y,
+        int fontSize,
+        unsigned char r,
+        unsigned char g,
+        unsigned char b
+    );
+};

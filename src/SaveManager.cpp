@@ -101,6 +101,20 @@ SaveData SaveManager::LoadSave() const
     }
 
 
+    const int savedMemoryStage =
+        ParseIntField(
+            text,
+            "memory_stage"
+        );
+
+
+    if (savedMemoryStage >= 0)
+    {
+        data.memoryStage =
+            savedMemoryStage;
+    }
+
+
     return data;
 }
 
@@ -168,7 +182,10 @@ bool SaveManager::SaveGame(
         << "    \"music_volume\": "
         << data.musicVolume
         << "\n"
-        << "  }\n"
+        << "  },\n"
+        << "  \"memory_stage\": "
+        << data.memoryStage
+        << "\n"
         << "}\n";
 
 

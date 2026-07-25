@@ -4,6 +4,7 @@
 #include "Enemy.h"
 #include "GameFont.h"
 #include "MainMenu.h"
+#include "MemorySystem.h"
 #include "SaveManager.h"
 #include "StoryReader.h"
 #include "WordManager.h"
@@ -12,6 +13,7 @@
 #include <array>
 #include <cmath>
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -24,7 +26,9 @@ namespace
     {
         Menu,
         Adventure,
-        Story
+        Story,
+        Memory,
+        MemoryLibrary
     };
 
 
@@ -75,6 +79,8 @@ namespace
 
 
     MainMenu menu;
+
+    MemorySystem memorySystem;
 
     WordManager wordManager;
 
@@ -141,6 +147,46 @@ namespace
     int waveClearTimer = 0;
 
 
+    // Total enemies still waiting to enter the current wave.
+    int queuedEnemies = 0;
+
+
+    // One active enemy is allowed per lane.
+    std::array<bool, 5>
+        laneOccupied =
+        {
+            false,
+            false,
+            false,
+            false,
+            false
+        };
+
+
+    // After a lane clears, wait briefly before sending
+    // the next queued enemy into that lane.
+    std::array<int, 5>
+        laneSpawnCooldown =
+        {
+            0,
+            0,
+            0,
+            0,
+            0
+        };
+
+
+    constexpr int LANE_RESPAWN_DELAY =
+        42; // 0.7 seconds at 60 FPS
+
+
+    // Every word assigned to an enemy is unique while
+    // that enemy is active. This lets main.cpp remember
+    // which lane an enemy belongs to without changing Enemy.h.
+    std::vector<std::pair<int, int>>
+        wordLaneLookup;
+
+
     bool paused = false;
 
     int pauseSelected = 0;
@@ -149,6 +195,11 @@ namespace
     bool gameOver = false;
 
     int gameOverSelected = 0;
+
+
+    bool memoryReturnsToAdventure = false;
+
+    bool memoryShouldAdvanceWave = false;
 
 
     bool ContainsId(
@@ -198,6 +249,112 @@ namespace
             ),
             ids.end()
         );
+    }
+
+
+    void RememberWordLane(
+        int wordId,
+        int lane
+    )
+    {
+        wordLaneLookup.push_back(
+            {
+                wordId,
+                lane
+            }
+        );
+    }
+
+
+    int FindLaneForWord(
+        int wordId
+    )
+    {
+        for (
+            const auto& entry
+            :
+            wordLaneLookup
+        )
+        {
+            if (entry.first == wordId)
+            {
+                return entry.second;
+            }
+        }
+
+
+        return -1;
+    }
+
+
+    void ForgetLaneWords(
+        int lane
+    )
+    {
+        wordLaneLookup.erase(
+            std::remove_if(
+                wordLaneLookup.begin(),
+                wordLaneLookup.end(),
+                [lane](
+                    const std::pair<int, int>& entry
+                )
+                {
+                    return entry.second == lane;
+                }
+            ),
+            wordLaneLookup.end()
+        );
+    }
+
+
+    void ReleaseLane(
+        int lane
+    )
+    {
+        if (
+            lane < 0
+            ||
+            lane >= 5
+        )
+        {
+            return;
+        }
+
+
+        laneOccupied[lane] =
+            false;
+
+
+        laneSpawnCooldown[lane] =
+            LANE_RESPAWN_DELAY;
+
+
+        ForgetLaneWords(
+            lane
+        );
+    }
+
+
+    void ResetWaveQueueState()
+    {
+        queuedEnemies = 0;
+
+        wordLaneLookup.clear();
+
+
+        for (
+            int lane = 0;
+            lane < 5;
+            lane++
+        )
+        {
+            laneOccupied[lane] =
+                false;
+
+
+            laneSpawnCooldown[lane] =
+                0;
+        }
     }
 
 
@@ -801,6 +958,7 @@ namespace
             saveData.wordsRecovered;
 
 
+        // Early game stays gentle.
         if (recovered < 25)
         {
             return GetRandomValue(
@@ -819,9 +977,65 @@ namespace
         }
 
 
+        if (recovered < 250)
+        {
+            return GetRandomValue(
+                2,
+                5
+            );
+        }
+
+
+        if (recovered < 500)
+        {
+            return GetRandomValue(
+                3,
+                6
+            );
+        }
+
+
+        if (recovered < 750)
+        {
+            return GetRandomValue(
+                3,
+                7
+            );
+        }
+
+
+        if (recovered < 900)
+        {
+            return GetRandomValue(
+                4,
+                8
+            );
+        }
+
+
+        if (recovered < 1050)
+        {
+            return GetRandomValue(
+                5,
+                9
+            );
+        }
+
+
+        if (recovered < 1100)
+        {
+            return GetRandomValue(
+                6,
+                9
+            );
+        }
+
+
+        // Late game can contain as many as ten enemies,
+        // but never more than five are active at once.
         return GetRandomValue(
-            2,
-            5
+            6,
+            10
         );
     }
 
@@ -1009,6 +1223,12 @@ namespace
                 reservedWordIds,
                 record.id
             );
+
+
+            RememberWordLane(
+                record.id,
+                laneIndex
+            );
         }
 
 
@@ -1041,23 +1261,68 @@ namespace
         );
 
 
+        laneOccupied[laneIndex] =
+            true;
+
+
         return true;
     }
 
 
-    void StartWave()
+    bool SpawnQueuedEnemyInLane(
+        int laneIndex
+    )
     {
-        enemies.clear();
+        if (
+            queuedEnemies <= 0
+            ||
+            laneOccupied[laneIndex]
+            ||
+            laneSpawnCooldown[laneIndex] > 0
+        )
+        {
+            return false;
+        }
 
-        reservedWordIds.clear();
 
-        combat.ClearInput();
+        if (
+            CreateEnemy(
+                laneIndex
+            )
+        )
+        {
+            queuedEnemies--;
 
-        waveClearTimer = 0;
+            return true;
+        }
 
 
-        const int waveSize =
-            GetWaveSize();
+        // No unrecovered words remain to assign.
+        queuedEnemies = 0;
+
+        return false;
+    }
+
+
+    void UpdateQueuedSpawns()
+    {
+        for (
+            int lane = 0;
+            lane < 5;
+            lane++
+        )
+        {
+            if (laneSpawnCooldown[lane] > 0)
+            {
+                laneSpawnCooldown[lane]--;
+            }
+        }
+
+
+        if (queuedEnemies <= 0)
+        {
+            return;
+        }
 
 
         std::array<int, 5> lanes =
@@ -1070,8 +1335,8 @@ namespace
         };
 
 
-        // Fisher-Yates shuffle.
-
+        // Shuffle available lane order so replacements
+        // do not always favor the top lane.
         for (
             int index = 4;
             index > 0;
@@ -1093,14 +1358,102 @@ namespace
 
 
         for (
-            int index = 0;
-            index < waveSize;
-            index++
+            int lane
+            :
+            lanes
         )
         {
-            CreateEnemy(
-                lanes[index]
+            if (queuedEnemies <= 0)
+            {
+                break;
+            }
+
+
+            SpawnQueuedEnemyInLane(
+                lane
             );
+        }
+    }
+
+
+    void StartWave()
+    {
+        enemies.clear();
+
+        reservedWordIds.clear();
+
+        combat.ClearInput();
+
+        waveClearTimer = 0;
+
+
+        ResetWaveQueueState();
+
+
+        queuedEnemies =
+            GetWaveSize();
+
+
+        std::array<int, 5> lanes =
+        {
+            0,
+            1,
+            2,
+            3,
+            4
+        };
+
+
+        // Randomize which lanes receive the opening enemies.
+        for (
+            int index = 4;
+            index > 0;
+            index--
+        )
+        {
+            const int other =
+                GetRandomValue(
+                    0,
+                    index
+                );
+
+
+            std::swap(
+                lanes[index],
+                lanes[other]
+            );
+        }
+
+
+        // Fill at most five lanes. Any remaining enemies
+        // stay queued until one of those lanes becomes free.
+        for (
+            int lane
+            :
+            lanes
+        )
+        {
+            if (queuedEnemies <= 0)
+            {
+                break;
+            }
+
+
+            if (
+                CreateEnemy(
+                    lane
+                )
+            )
+            {
+                queuedEnemies--;
+            }
+
+            else
+            {
+                queuedEnemies = 0;
+
+                break;
+            }
         }
     }
 
@@ -1195,6 +1548,24 @@ namespace
         Enemy& enemy
     )
     {
+        int lane =
+            -1;
+
+
+        const std::vector<int>
+            remainingWordIds =
+                enemy.GetRemainingWordIds();
+
+
+        if (!remainingWordIds.empty())
+        {
+            lane =
+                FindLaneForWord(
+                    remainingWordIds.front()
+                );
+        }
+
+
         int damage =
             enemy.GetWordsRemaining();
 
@@ -1246,6 +1617,11 @@ namespace
         );
 
 
+        ReleaseLane(
+            lane
+        );
+
+
         combat.ClearInput();
 
 
@@ -1268,6 +1644,8 @@ namespace
 
 
         saveData.wordsRecovered = 0;
+
+        saveData.memoryStage = 0;
 
 
         playerHealth =
@@ -1308,6 +1686,16 @@ namespace
 
 
         StartWave();
+
+
+        memorySystem.BeginPrologue();
+
+        memoryReturnsToAdventure = true;
+
+        memoryShouldAdvanceWave = false;
+
+        currentState =
+            GameState::Memory;
     }
 
 
@@ -1344,6 +1732,8 @@ namespace
         reservedWordIds.clear();
 
         enemies.clear();
+
+        ResetWaveQueueState();
 
         combat.ClearInput();
 
@@ -1425,7 +1815,16 @@ namespace
         );
 
 
-        if (!enemies.empty())
+        UpdateQueuedSpawns();
+
+
+        // The wave is not clear until both the active
+        // enemies and the waiting queue are empty.
+        if (
+            !enemies.empty()
+            ||
+            queuedEnemies > 0
+        )
         {
             return;
         }
@@ -1454,6 +1853,43 @@ namespace
 
             if (waveClearTimer <= 0)
             {
+                const int memoryIndex =
+                    memorySystem.GetNextMemoryIndex(
+                        saveData.wordsRecovered,
+                        saveData.memoryStage
+                    );
+
+
+                if (memoryIndex >= 0)
+                {
+                    memorySystem.BeginFragment(
+                        memoryIndex
+                    );
+
+
+                    saveData.memoryStage =
+                        memoryIndex + 1;
+
+
+                    SaveProgress();
+
+
+                    memoryReturnsToAdventure =
+                        true;
+
+
+                    memoryShouldAdvanceWave =
+                        true;
+
+
+                    currentState =
+                        GameState::Memory;
+
+
+                    return;
+                }
+
+
                 waveNumber++;
 
                 StartWave();
@@ -1491,6 +1927,12 @@ namespace
             ->GetCurrentWordId();
 
 
+        const int enemyLane =
+            FindLaneForWord(
+                currentWordId
+            );
+
+
         if (currentWordId >= 0)
         {
             RecoverWord(
@@ -1507,6 +1949,11 @@ namespace
         if (enemyFinished)
         {
             enemy->Defeat();
+
+
+            ReleaseLane(
+                enemyLane
+            );
         }
     }
 
@@ -1806,23 +2253,26 @@ namespace
 
 
         const std::string progress =
-            "Words: "
+            "Words Recovered: "
             +
             std::to_string(
                 saveData.wordsRecovered
             )
             +
-            "/"
+            " / "
             +
             std::to_string(
-                wordManager
-                .GetTotalWordCount()
+                wordManager.GetTotalWordCount()
             )
             +
-            "    Wave: "
+            "    Creatures Remaining: "
             +
             std::to_string(
-                waveNumber
+                static_cast<int>(
+                    enemies.size()
+                )
+                +
+                queuedEnemies
             );
 
 
@@ -2389,12 +2839,21 @@ namespace
             }
 
 
+            case MenuAction::Memories:
+            {
+                memorySystem.ResetLibrary();
+
+                currentState =
+                    GameState::MemoryLibrary;
+
+
+                break;
+            }
+
+
             case MenuAction::NewGame:
             {
                 NewGame();
-
-                currentState =
-                    GameState::Adventure;
 
 
                 break;
@@ -2604,20 +3063,22 @@ int main()
 
 
         if (backgroundMusic.ctxData != nullptr)
-{
-    backgroundMusic.looping = true;
+        {
+            backgroundMusic.looping = true;
 
-    SetMusicVolume(
-        backgroundMusic,
-        static_cast<float>(musicVolume) / 100.0f
-    );
+            SetMusicVolume(
+                backgroundMusic,
+                static_cast<float>(musicVolume) / 100.0f
+            );
 
-    PlayMusicStream(
-        backgroundMusic
-    );
 
-    backgroundMusicLoaded = true;
-}
+            PlayMusicStream(
+                backgroundMusic
+            );
+
+
+            backgroundMusicLoaded = true;
+        }
     }
 
 
@@ -2680,6 +3141,67 @@ int main()
         }
 
 
+        else if (
+            currentState
+            ==
+            GameState::Memory
+        )
+        {
+            if (
+                memorySystem
+                .HandleFragmentInput()
+            )
+            {
+                if (memoryReturnsToAdventure)
+                {
+                    memoryReturnsToAdventure =
+                        false;
+
+
+                    if (memoryShouldAdvanceWave)
+                    {
+                        waveNumber++;
+
+                        StartWave();
+                    }
+
+
+                    memoryShouldAdvanceWave =
+                        false;
+
+
+                    currentState =
+                        GameState::Adventure;
+                }
+
+                else
+                {
+                    currentState =
+                        GameState::Menu;
+                }
+            }
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::MemoryLibrary
+        )
+        {
+            if (
+                memorySystem
+                .HandleLibraryInput(
+                    saveData.memoryStage
+                )
+            )
+            {
+                currentState =
+                    GameState::Menu;
+            }
+        }
+
+
         // -------------------------
         // DRAW
         // -------------------------
@@ -2717,6 +3239,28 @@ int main()
             {
                 storyReader->Draw();
             }
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::Memory
+        )
+        {
+            memorySystem.DrawFragment();
+        }
+
+
+        else if (
+            currentState
+            ==
+            GameState::MemoryLibrary
+        )
+        {
+            memorySystem.DrawLibrary(
+                saveData.memoryStage
+            );
         }
 
 

@@ -68,7 +68,7 @@ MenuAction MainMenu::HandleInput()
         {
             MoveSelection(
                 -1,
-                5
+                6
             );
         }
 
@@ -81,7 +81,7 @@ MenuAction MainMenu::HandleInput()
         {
             MoveSelection(
                 1,
-                5
+                6
             );
         }
 
@@ -99,14 +99,17 @@ MenuAction MainMenu::HandleInput()
                     return MenuAction::Story;
 
                 case 2:
-                    return MenuAction::NewGame;
+                    return MenuAction::Memories;
 
                 case 3:
+                    return MenuAction::NewGame;
+
+                case 4:
                     mode = Mode::Options;
                     selected = 0;
                     return MenuAction::None;
 
-                case 4:
+                case 5:
                     return MenuAction::Exit;
             }
         }
@@ -320,7 +323,7 @@ void MainMenu::DrawMain()
         );
 
 
-        y += 28;
+        y += 25;
     }
 
 
@@ -328,6 +331,7 @@ void MainMenu::DrawMain()
     {
         "Start Adventure",
         "Read The Tale of Bearly",
+        "Memories",
         "New Game",
         "Options",
         "Exit"
@@ -336,16 +340,16 @@ void MainMenu::DrawMain()
 
     y =
         std::max(
-            365,
+            382,
             GetScreenHeight()
             -
-            225
+            218
         );
 
 
     for (
         int index = 0;
-        index < 5;
+        index < 6;
         index++
     )
     {
@@ -363,7 +367,7 @@ void MainMenu::DrawMain()
         );
 
 
-        y += 42;
+        y += 36;
     }
 }
 

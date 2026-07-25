@@ -8,6 +8,7 @@ enum class MenuAction
     None,
     Start,
     Story,
+    Memories,
     NewGame,
     Exit,
     DisplayLeft,

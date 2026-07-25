@@ -27,6 +27,7 @@ add_executable(
     src/MainMenu.cpp
     src/StoryReader.cpp
     src/GameFont.cpp
+    src/MemorySystem.cpp
 )
 
 target_link_libraries(

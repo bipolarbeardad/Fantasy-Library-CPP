@@ -14,6 +14,8 @@ struct SaveData
     int displayIndex = 0;
 
     int musicVolume = 40;
+
+    int memoryStage = 0;
 };
 
 
