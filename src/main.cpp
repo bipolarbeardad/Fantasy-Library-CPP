@@ -6,6 +6,7 @@
 #include "GameFont.h"
 #include "MainMenu.h"
 #include "MemorySystem.h"
+#include "QuillSystem.h"
 #include "SaveManager.h"
 #include "StoryReader.h"
 #include "WordManager.h"
@@ -90,6 +91,8 @@ namespace
 
     MemorySystem memorySystem;
 
+    QuillSystem quillSystem;
+
     FinalBoss finalBoss;
 
     WordManager wordManager;
@@ -155,6 +158,11 @@ namespace
 
 
     int waveClearTimer = 0;
+
+
+    int chapterRestoredTimer = 0;
+
+    int chapterRestoredNumber = -1;
 
 
     // Total enemies still waiting to enter the current wave.
@@ -973,6 +981,129 @@ namespace
             2.0f,
             pageEdge
         );
+
+
+        // Once Memory II restores the Quill, the Word Seeker
+        // visibly carries it during normal play. During the final
+        // confrontation the Stained Author has stolen it.
+        const bool authorHasQuill =
+            currentState
+            ==
+            GameState::FinalBossIntro
+            ||
+            currentState
+            ==
+            GameState::FinalBoss;
+
+
+        if (
+            quillSystem.HasQuill()
+            &&
+            !authorHasQuill
+        )
+        {
+            const Vector2 hand =
+            {
+                static_cast<float>(
+                    playerX + 17
+                ),
+                static_cast<float>(
+                    playerY + 6
+                )
+            };
+
+
+            const Vector2 featherBase =
+            {
+                static_cast<float>(
+                    playerX + 38
+                ),
+                static_cast<float>(
+                    playerY - 23
+                )
+            };
+
+
+            DrawLineEx(
+                hand,
+                featherBase,
+                3.0f,
+                Color{
+                    215,
+                    195,
+                    145,
+                    255
+                }
+            );
+
+
+            DrawTriangle(
+                Vector2{
+                    static_cast<float>(
+                        playerX + 36
+                    ),
+                    static_cast<float>(
+                        playerY - 20
+                    )
+                },
+                Vector2{
+                    static_cast<float>(
+                        playerX + 49
+                    ),
+                    static_cast<float>(
+                        playerY - 39
+                    )
+                },
+                Vector2{
+                    static_cast<float>(
+                        playerX + 42
+                    ),
+                    static_cast<float>(
+                        playerY - 15
+                    )
+                },
+                Color{
+                    235,
+                    225,
+                    205,
+                    255
+                }
+            );
+
+
+            DrawTriangle(
+                Vector2{
+                    static_cast<float>(
+                        playerX + 37
+                    ),
+                    static_cast<float>(
+                        playerY - 21
+                    )
+                },
+                Vector2{
+                    static_cast<float>(
+                        playerX + 29
+                    ),
+                    static_cast<float>(
+                        playerY - 30
+                    )
+                },
+                Vector2{
+                    static_cast<float>(
+                        playerX + 42
+                    ),
+                    static_cast<float>(
+                        playerY - 15
+                    )
+                },
+                Color{
+                    220,
+                    210,
+                    195,
+                    255
+                }
+            );
+        }
     }
 
 
@@ -1129,7 +1260,8 @@ namespace
 
     std::vector<WordRecord>
     GetWordRecords(
-        int count
+        int count,
+        EnemyType enemyType
     )
     {
         std::vector<WordRecord>
@@ -1184,8 +1316,12 @@ namespace
             const std::vector<WordRecord>
                 records =
                     wordManager
-                    .GetWords(
-                        excluded
+                    .GetWordsForChapter(
+                        excluded,
+                        enemyType,
+                        wordManager.GetCurrentChapter(
+                            saveData.recoveredWordIds
+                        )
                     );
 
 
@@ -1213,10 +1349,17 @@ namespace
             GetEnemyWordCount();
 
 
+        const EnemyType enemyType =
+            wordManager.GetEnemyType(
+                saveData.wordsRecovered
+            );
+
+
         const std::vector<WordRecord>
             records =
                 GetWordRecords(
-                    wordCount
+                    wordCount,
+                    enemyType
                 );
 
 
@@ -1266,9 +1409,7 @@ namespace
         enemies.emplace_back(
             words,
             wordIds,
-            wordManager.GetEnemyType(
-                saveData.wordsRecovered
-            ),
+            enemyType,
             laneIndex,
             static_cast<float>(
                 GetScreenWidth()
@@ -1504,6 +1645,12 @@ namespace
         }
 
 
+        const int chapterBeforeRecovery =
+            wordManager.GetCurrentChapter(
+                saveData.recoveredWordIds
+            );
+
+
         saveData
             .recoveredWordIds
             .push_back(
@@ -1523,6 +1670,36 @@ namespace
                 .recoveredWordIds
                 .size()
             );
+
+
+        quillSystem.SyncUnlocks(
+            saveData.wordsRecovered
+        );
+
+
+        // Every newly recovered unique word charges the
+        // word-powered Quill abilities.
+        quillSystem.OnWordsRecovered(
+            1
+        );
+
+
+        if (
+            chapterBeforeRecovery > 0
+            &&
+            wordManager.IsChapterComplete(
+                chapterBeforeRecovery,
+                saveData.recoveredWordIds
+            )
+        )
+        {
+            chapterRestoredNumber =
+                chapterBeforeRecovery;
+
+
+            chapterRestoredTimer =
+                180;
+        }
 
 
         if (
@@ -1572,6 +1749,333 @@ namespace
                     .recoveredWordIds
                 );
         }
+    }
+
+
+    Enemy* GetMostDangerousEnemy()
+    {
+        Enemy* best =
+            nullptr;
+
+
+        float bestDistance =
+            1000000000.0f;
+
+
+        for (
+            Enemy& enemy
+            :
+            enemies
+        )
+        {
+            if (
+                enemy.IsDefeated()
+                ||
+                enemy.HasEscaped()
+            )
+            {
+                continue;
+            }
+
+
+            const float dx =
+                enemy.GetX()
+                -
+                static_cast<float>(
+                    playerX
+                );
+
+
+            const float dy =
+                enemy.GetY()
+                -
+                static_cast<float>(
+                    playerY
+                );
+
+
+            const float distance =
+                dx * dx
+                +
+                dy * dy;
+
+
+            if (
+                best == nullptr
+                ||
+                distance < bestDistance
+            )
+            {
+                best =
+                    &enemy;
+
+
+                bestDistance =
+                    distance;
+            }
+        }
+
+
+        return best;
+    }
+
+
+    void EraseEnemy(
+        Enemy& enemy
+    )
+    {
+        if (
+            enemy.IsDefeated()
+            ||
+            enemy.HasEscaped()
+        )
+        {
+            return;
+        }
+
+
+        const std::vector<int>
+            remainingIds =
+                enemy.GetRemainingWordIds();
+
+
+        int lane =
+            enemy.GetLane();
+
+
+        for (
+            int wordId
+            :
+            remainingIds
+        )
+        {
+            // TheEnd can only be restored by the Stained Author.
+            if (wordId == FINAL_WORD_ID)
+            {
+                continue;
+            }
+
+
+            RecoverWord(
+                wordId
+            );
+
+
+            RemoveId(
+                reservedWordIds,
+                wordId
+            );
+        }
+
+
+        enemy.Defeat();
+
+
+        ReleaseLane(
+            lane
+        );
+
+
+        combat.ClearInput();
+    }
+
+
+    void UseStunAbility()
+    {
+        if (!quillSystem.IsStunReady())
+        {
+            return;
+        }
+
+
+        Enemy* target =
+            GetMostDangerousEnemy();
+
+
+        if (target == nullptr)
+        {
+            return;
+        }
+
+
+        if (quillSystem.UseStun())
+        {
+            target->ApplyStun(
+                QuillSystem::STUN_DURATION_FRAMES
+            );
+        }
+    }
+
+
+    void UseFreezeAbility()
+    {
+        if (!quillSystem.IsFreezeReady())
+        {
+            return;
+        }
+
+
+        bool foundTarget =
+            false;
+
+
+        for (
+            const Enemy& enemy
+            :
+            enemies
+        )
+        {
+            if (
+                !enemy.IsDefeated()
+                &&
+                !enemy.HasEscaped()
+            )
+            {
+                foundTarget =
+                    true;
+
+                break;
+            }
+        }
+
+
+        if (!foundTarget)
+        {
+            return;
+        }
+
+
+        if (!quillSystem.UseFreeze())
+        {
+            return;
+        }
+
+
+        for (
+            Enemy& enemy
+            :
+            enemies
+        )
+        {
+            if (
+                enemy.IsDefeated()
+                ||
+                enemy.HasEscaped()
+            )
+            {
+                continue;
+            }
+
+
+            enemy.ApplyStun(
+                QuillSystem::FREEZE_DURATION_FRAMES
+            );
+        }
+
+
+        combat.ClearInput();
+    }
+
+
+    void UseEraseAbility()
+    {
+        if (!quillSystem.IsEraseReady())
+        {
+            return;
+        }
+
+
+        Enemy* target =
+            GetMostDangerousEnemy();
+
+
+        if (target == nullptr)
+        {
+            return;
+        }
+
+
+        if (!quillSystem.UseErase())
+        {
+            return;
+        }
+
+
+        EraseEnemy(
+            *target
+        );
+    }
+
+
+    void UseRewriteAbility()
+    {
+        if (!quillSystem.IsRewriteReady())
+        {
+            return;
+        }
+
+
+        bool foundTarget =
+            false;
+
+
+        for (
+            const Enemy& enemy
+            :
+            enemies
+        )
+        {
+            if (
+                !enemy.IsDefeated()
+                &&
+                !enemy.HasEscaped()
+            )
+            {
+                foundTarget =
+                    true;
+
+                break;
+            }
+        }
+
+
+        if (!foundTarget)
+        {
+            return;
+        }
+
+
+        if (!quillSystem.UseRewrite())
+        {
+            return;
+        }
+
+
+        // Rewrite affects only creatures already present on the
+        // board. Queued creatures have not yet stolen any words.
+        for (
+            Enemy& enemy
+            :
+            enemies
+        )
+        {
+            if (
+                enemy.IsDefeated()
+                ||
+                enemy.HasEscaped()
+            )
+            {
+                continue;
+            }
+
+
+            EraseEnemy(
+                enemy
+            );
+        }
+
+
+        combat.ClearInput();
     }
 
 
@@ -1771,7 +2275,17 @@ namespace
         finalBossIntroStep++;
 
 
-        if (finalBossIntroStep >= 3)
+        const int finalIntroStep =
+            2
+            +
+            finalBoss.GetTheftLineCount();
+
+
+        if (
+            finalBossIntroStep
+            >
+            finalIntroStep
+        )
         {
             combat.ClearInput();
 
@@ -1793,75 +2307,168 @@ namespace
         );
 
 
-        const char* introLines[] =
+        if (finalBossIntroStep == 0)
         {
-            "The final page turns.",
-            "Something is waiting.",
-            "THE STAINED AUTHOR"
-        };
-
-
-        for (
-            int index = 0;
-            index <= finalBossIntroStep
-            &&
-            index < 3;
-            index++
-        )
-        {
-            const int fontSize =
-                index == 2
-                ?
-                46
-                :
-                28;
+            const char* line =
+                "The final page turns.";
 
 
             DrawGameText(
-                introLines[index],
+                line,
                 GetScreenWidth() / 2
                 -
                 MeasureGameText(
-                    introLines[index],
-                    fontSize
+                    line,
+                    30
                 )
                 /
                 2,
-                190 + index * 75,
-                fontSize,
-                index == 2
-                ?
+                260,
+                30,
                 Color{
-                    230,
-                    205,
-                    145,
-                    255
-                }
-                :
-                Color{
-                    210,
-                    210,
                     215,
+                    215,
+                    220,
                     255
                 }
             );
         }
 
 
-        DrawGameText(
-            finalBossIntroStep >= 2
+        else if (finalBossIntroStep == 1)
+        {
+            const char* line =
+                "Something is waiting.";
+
+
+            DrawGameText(
+                line,
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    line,
+                    30
+                )
+                /
+                2,
+                260,
+                30,
+                Color{
+                    215,
+                    215,
+                    220,
+                    255
+                }
+            );
+        }
+
+
+        else
+        {
+            DrawGameText(
+                "THE STAINED AUTHOR",
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    "THE STAINED AUTHOR",
+                    46
+                )
+                /
+                2,
+                90,
+                46,
+                Color{
+                    230,
+                    205,
+                    145,
+                    255
+                }
+            );
+
+
+            DrawPlayer();
+
+
+            const int theftIndex =
+                finalBossIntroStep
+                -
+                2;
+
+
+            if (
+                theftIndex >= 0
+                &&
+                theftIndex
+                <
+                finalBoss.GetTheftLineCount()
+            )
+            {
+                const char* line =
+                    finalBoss.GetTheftLine(
+                        theftIndex
+                    );
+
+
+                DrawGameText(
+                    line,
+                    GetScreenWidth() / 2
+                    -
+                    MeasureGameText(
+                        line,
+                        26
+                    )
+                    /
+                    2,
+                    270,
+                    26,
+                    theftIndex
+                    ==
+                    finalBoss.GetTheftLineCount()
+                    -
+                    1
+                    ?
+                    Color{
+                        235,
+                        190,
+                        115,
+                        255
+                    }
+                    :
+                    Color{
+                        220,
+                        220,
+                        220,
+                        255
+                    }
+                );
+            }
+        }
+
+
+        const int finalIntroStep =
+            2
+            +
+            finalBoss.GetTheftLineCount()
+            -
+            1;
+
+
+        const char* prompt =
+            finalBossIntroStep
+            >=
+            finalIntroStep
             ?
             "ENTER - Face the Author"
             :
-            "ENTER - Continue",
+            "ENTER - Continue";
+
+
+        DrawGameText(
+            prompt,
             GetScreenWidth() / 2
             -
             MeasureGameText(
-                finalBossIntroStep >= 2
-                ?
-                "ENTER - Face the Author"
-                :
-                "ENTER - Continue",
+                prompt,
                 20
             )
             /
@@ -2501,6 +3108,20 @@ namespace
         saveData.memoryStage = 0;
 
 
+        quillSystem.Reset();
+
+        quillSystem.SyncUnlocks(
+            0
+        );
+
+
+        chapterRestoredTimer =
+            0;
+
+        chapterRestoredNumber =
+            -1;
+
+
         playerHealth =
             MAX_HEALTH;
 
@@ -2612,6 +3233,17 @@ namespace
         )
         {
             return;
+        }
+
+
+        quillSystem.Update(
+            true
+        );
+
+
+        if (chapterRestoredTimer > 0)
+        {
+            chapterRestoredTimer--;
         }
 
 
@@ -3245,6 +3877,87 @@ namespace
 
 
         if (
+            !paused
+            &&
+            !gameOver
+        )
+        {
+            quillSystem.DrawHUD(
+                GetScreenWidth(),
+                GetScreenHeight(),
+                true
+            );
+        }
+
+
+        if (
+            chapterRestoredTimer > 0
+            &&
+            chapterRestoredNumber > 0
+            &&
+            !paused
+            &&
+            !gameOver
+        )
+        {
+            const std::string chapterText =
+                "CHAPTER "
+                +
+                std::to_string(
+                    chapterRestoredNumber
+                )
+                +
+                " RESTORED";
+
+
+            DrawGameText(
+                chapterText,
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    chapterText,
+                    34
+                )
+                /
+                2,
+                135,
+                34,
+                Color{
+                    255,
+                    225,
+                    120,
+                    255
+                }
+            );
+
+
+            const char* libraryText =
+                "The chapter can now be read in the Library.";
+
+
+            DrawGameText(
+                libraryText,
+                GetScreenWidth() / 2
+                -
+                MeasureGameText(
+                    libraryText,
+                    20
+                )
+                /
+                2,
+                177,
+                20,
+                Color{
+                    205,
+                    205,
+                    210,
+                    255
+                }
+            );
+        }
+
+
+        if (
             waveClearTimer > 0
             &&
             !paused
@@ -3666,6 +4379,38 @@ namespace
         }
 
 
+        if (IsKeyPressed(KEY_ONE))
+        {
+            UseStunAbility();
+
+            return;
+        }
+
+
+        if (IsKeyPressed(KEY_TWO))
+        {
+            UseFreezeAbility();
+
+            return;
+        }
+
+
+        if (IsKeyPressed(KEY_THREE))
+        {
+            UseEraseAbility();
+
+            return;
+        }
+
+
+        if (IsKeyPressed(KEY_FOUR))
+        {
+            UseRewriteAbility();
+
+            return;
+        }
+
+
         combat.HandleInput();
 
         ProcessCombatMatch();
@@ -3868,7 +4613,7 @@ namespace
 int main()
 {
     SetConfigFlags(
-        FLAG_WINDOW_HIGHDPI
+        FLAG_WINDOW_RESIZABLE
     );
 
 
@@ -3876,6 +4621,12 @@ int main()
         900,
         600,
         "Fantasy Library: Quest of the Word Seeker"
+    );
+
+
+    SetWindowMinSize(
+        800,
+        533
     );
 
 
@@ -3896,6 +4647,13 @@ int main()
 
     saveData =
         saveManager.LoadSave();
+
+
+    quillSystem.Reset();
+
+    quillSystem.SyncUnlocks(
+        saveData.wordsRecovered
+    );
 
 
     displayIndex =
@@ -3968,6 +4726,12 @@ int main()
         !WindowShouldClose()
     )
     {
+        if (IsWindowResized())
+        {
+            RefreshDisplayGeometry();
+        }
+
+
         if (backgroundMusicLoaded)
         {
             UpdateMusicStream(

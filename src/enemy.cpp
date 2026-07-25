@@ -43,6 +43,7 @@ Enemy::Enemy(
     escaped(false),
     stunned(false),
     stunTimer(0),
+    movementStunTimer(0),
     walkPhase(
         static_cast<float>(
             GetRandomValue(
@@ -249,6 +250,8 @@ void Enemy::Update()
     }
 
 
+    // The short between-word stagger hides the next word and
+    // temporarily prevents movement.
     if (stunned)
     {
         stunTimer--;
@@ -261,6 +264,25 @@ void Enemy::Update()
             stunned = false;
         }
 
+
+        // Quill stun still counts down while the enemy is in its
+        // normal post-hit stagger, so the timers do not stack in
+        // a confusing way.
+        if (movementStunTimer > 0)
+        {
+            movementStunTimer--;
+        }
+
+
+        return;
+    }
+
+
+    // Quill Stun and Freeze pause movement but deliberately leave
+    // the current word visible and typeable.
+    if (movementStunTimer > 0)
+    {
+        movementStunTimer--;
 
         return;
     }
@@ -317,6 +339,43 @@ void Enemy::Update()
         0.08f
         +
         speed * 0.05f;
+}
+
+
+void Enemy::ApplyStun(
+    int frames
+)
+{
+    if (
+        defeated
+        ||
+        escaped
+        ||
+        frames <= 0
+    )
+    {
+        return;
+    }
+
+
+    // Never shorten an existing Quill/Freeze stun.
+    movementStunTimer =
+        std::max(
+            movementStunTimer,
+            frames
+        );
+}
+
+
+bool Enemy::IsMovementStunned() const
+{
+    return movementStunTimer > 0;
+}
+
+
+int Enemy::GetStunFramesRemaining() const
+{
+    return movementStunTimer;
 }
 
 
@@ -983,6 +1042,37 @@ void Enemy::Draw() const
             4.0f
             :
             -4.0f;
+    }
+
+
+    if (movementStunTimer > 0)
+    {
+        // Small rings make Quill Stun / Freeze visually distinct
+        // from the normal between-word stagger.
+        DrawCircleLines(
+            static_cast<int>(drawX),
+            static_cast<int>(drawY - 20),
+            25.0f,
+            Color{
+                165,
+                205,
+                235,
+                220
+            }
+        );
+
+
+        DrawCircleLines(
+            static_cast<int>(drawX),
+            static_cast<int>(drawY - 20),
+            30.0f,
+            Color{
+                105,
+                145,
+                205,
+                150
+            }
+        );
     }
 
 

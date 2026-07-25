@@ -58,7 +58,17 @@ MemorySystem::MemorySystem()
                 "I held something in place.",
                 "A page.",
                 "",
-                "I was supposed to remember where someone stopped."
+                "I was supposed to remember where someone stopped.",
+                "",
+                "...",
+                "",
+                "Something slips from between the restored pages.",
+                "",
+                "A quill.",
+                "",
+                "My hand remembers this.",
+                "",
+                "THE QUILL HAS BEEN RECOVERED"
             }
         },
         {

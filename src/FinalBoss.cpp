@@ -22,10 +22,10 @@ const char* FinalBoss::PHASE_LABELS[
     FinalBoss::PHASE_COUNT
 ] =
 {
-    "A word buried beneath silence.",
-    "A story left without a reader.",
-    "A sentence waiting for its final mark.",
-    "The word that was never allowed to exist."
+    "The stolen Quill scratches at the Ribbon.",
+    "The Author tries to rewrite what cannot be written.",
+    "The stain fractures around a truth it cannot understand.",
+    "The final word waits where it always belonged."
 };
 
 
@@ -33,9 +33,21 @@ const char* FinalBoss::REACTIONS[
     FinalBoss::PHASE_COUNT - 1
 ] =
 {
-    "Why are you doing this?!",
-    "No! You're ruining everything!",
-    "What have you done to me?!"
+    "Why won't you disappear?!",
+    "I have the Quill! I can rewrite anything!",
+    "What ARE you?!"
+};
+
+
+const char* FinalBoss::THEFT_LINES[
+    FinalBoss::THEFT_LINE_COUNT
+] =
+{
+    "All this time...",
+    "You could rewrite it.",
+    "Then I don't have to be The End.",
+    "I only need to erase you.",
+    "The Stained Author tears the Quill from the Ribbon."
 };
 
 
@@ -139,6 +151,30 @@ const std::string&
 FinalBoss::GetReactionText() const
 {
     return reactionText;
+}
+
+
+const char* FinalBoss::GetTheftLine(
+    int index
+) const
+{
+    if (
+        index < 0
+        ||
+        index >= THEFT_LINE_COUNT
+    )
+    {
+        return "";
+    }
+
+
+    return THEFT_LINES[index];
+}
+
+
+int FinalBoss::GetTheftLineCount() const
+{
+    return THEFT_LINE_COUNT;
 }
 
 
@@ -800,6 +836,27 @@ void FinalBoss::Draw() const
             230,
             210,
             160,
+            255
+        }
+    );
+
+
+    DrawGameText(
+        "WIELDING THE STOLEN QUILL",
+        centerX
+        -
+        MeasureGameText(
+            "WIELDING THE STOLEN QUILL",
+            17
+        )
+        /
+        2,
+        78,
+        17,
+        Color{
+            155,
+            135,
+            105,
             255
         }
     );

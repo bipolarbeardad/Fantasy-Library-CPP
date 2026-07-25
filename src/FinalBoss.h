@@ -13,6 +13,10 @@ public:
     const std::string& GetCurrentWord() const;
     const std::string& GetReactionText() const;
 
+    // Narrative lines used when the Author steals the player's Quill.
+    const char* GetTheftLine(int index) const;
+    int GetTheftLineCount() const;
+
     int GetPhase() const;
     int GetPhaseCount() const;
 
@@ -62,6 +66,12 @@ private:
 
     static const char* REACTIONS[
         PHASE_COUNT - 1
+    ];
+
+    static constexpr int THEFT_LINE_COUNT = 5;
+
+    static const char* THEFT_LINES[
+        THEFT_LINE_COUNT
     ];
 
 

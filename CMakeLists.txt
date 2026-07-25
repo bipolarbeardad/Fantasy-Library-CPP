@@ -19,6 +19,7 @@ FetchContent_MakeAvailable(raylib)
 
 add_executable(
     FantasyLibrary
+
     src/main.cpp
     src/Combat.cpp
     src/Enemy.cpp
@@ -29,6 +30,7 @@ add_executable(
     src/GameFont.cpp
     src/MemorySystem.cpp
     src/FinalBoss.cpp
+    src/QuillSystem.cpp
 )
 
 target_link_libraries(
@@ -36,3 +38,19 @@ target_link_libraries(
     PRIVATE
     raylib
 )
+
+# Release build: launch as a normal Windows application
+# without opening a console window.
+if(MSVC)
+    set_target_properties(
+        FantasyLibrary
+        PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+
+    target_link_options(
+        FantasyLibrary
+        PRIVATE
+        /ENTRY:mainCRTStartup
+    )
+endif()
