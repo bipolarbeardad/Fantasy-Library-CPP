@@ -2,6 +2,8 @@
 
 #include "raylib.h"
 
+#include <string>
+
 class QuillSystem
 {
 public:
@@ -12,23 +14,21 @@ public:
     static constexpr int ERASE_UNLOCK_WORDS = 250;
     static constexpr int REWRITE_UNLOCK_WORDS = 500;
 
+    static constexpr int SECOND_STUN_UNLOCK_WORDS = 250;
+    static constexpr int SECOND_FREEZE_UNLOCK_WORDS = 500;
+
     static constexpr int STUN_DURATION_FRAMES = 180;
     static constexpr int STUN_COOLDOWN_FRAMES = 900;
 
     static constexpr int FREEZE_DURATION_FRAMES = 240;
     static constexpr int FREEZE_WORD_COST = 15;
 
-    // Easy-to-tune placeholders until playtesting.
     static constexpr int ERASE_WORD_COST = 10;
     static constexpr int REWRITE_WORD_COST = 30;
 
     void Reset();
     void SyncUnlocks(int wordsRecovered);
-
-    // Pass true only during unpaused Adventure gameplay.
     void Update(bool gameplayActive);
-
-    // Adds charge to word-powered abilities.
     void OnWordsRecovered(int count);
 
     bool HasQuill() const;
@@ -48,21 +48,32 @@ public:
     bool UseErase();
     bool UseRewrite();
 
-    int GetStunCooldownFrames() const;
-    float GetStunCooldownRatio() const;
+    int GetStunMaxCharges() const;
+    int GetStunReadyCharges() const;
 
-    int GetFreezeCharge() const;
+    int GetFreezeMaxCharges() const;
+    int GetFreezeReadyCharges() const;
+    int GetFreezeChargeProgress() const;
+
     int GetEraseCharge() const;
     int GetRewriteCharge() const;
 
-    float GetFreezeChargeRatio() const;
     float GetEraseChargeRatio() const;
     float GetRewriteChargeRatio() const;
+
+    std::string GetMatchingCommand(
+        const std::string& typed
+    ) const;
+
+    std::string GetCompletedCommand(
+        const std::string& typed
+    ) const;
 
     void DrawHUD(
         int screenWidth,
         int screenHeight,
-        bool showQuill
+        bool showQuill,
+        const std::string& typed
     ) const;
 
 private:
@@ -71,25 +82,40 @@ private:
     bool eraseUnlocked;
     bool rewriteUnlocked;
 
-    int stunCooldownRemaining;
-    int freezeCharge;
+    int stunMaxCharges;
+    int freezeMaxCharges;
+
+    int stunCooldowns[2];
+
+    int freezeReadyCharges;
+    int freezeChargeProgress;
+
     int eraseCharge;
     int rewriteCharge;
 
     float readyPulse;
 
     static float ClampRatio(float value);
+    static std::string Normalize(const std::string& value);
 
-    void DrawAbilityBox(
+    bool CommandReady(const std::string& command) const;
+    int FindReadyStunSlot() const;
+
+    void DrawAbilityLine(
         int x,
         int y,
-        int width,
-        int height,
-        const char* keyLabel,
         const char* name,
         bool unlocked,
         bool ready,
-        float fillRatio
+        const std::string& typed,
+        const std::string& status
+    ) const;
+
+    void DrawChargePips(
+        int x,
+        int y,
+        int readyCharges,
+        int maxCharges
     ) const;
 
     void DrawGoldenQuill(

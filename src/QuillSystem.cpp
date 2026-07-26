@@ -3,6 +3,7 @@
 #include "GameFont.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <string>
 
@@ -20,9 +21,15 @@ void QuillSystem::Reset()
     eraseUnlocked = false;
     rewriteUnlocked = false;
 
-    stunCooldownRemaining = 0;
+    stunMaxCharges = 0;
+    freezeMaxCharges = 0;
 
-    freezeCharge = 0;
+    stunCooldowns[0] = 0;
+    stunCooldowns[1] = 0;
+
+    freezeReadyCharges = 0;
+    freezeChargeProgress = 0;
+
     eraseCharge = 0;
     rewriteCharge = 0;
 
@@ -34,24 +41,109 @@ void QuillSystem::SyncUnlocks(
     int wordsRecovered
 )
 {
+    const int oldStunMax =
+        stunMaxCharges;
+
+    const int oldFreezeMax =
+        freezeMaxCharges;
+
+
     stunUnlocked =
-        wordsRecovered >= STUN_UNLOCK_WORDS;
+        wordsRecovered
+        >=
+        STUN_UNLOCK_WORDS;
 
     freezeUnlocked =
-        wordsRecovered >= FREEZE_UNLOCK_WORDS;
+        wordsRecovered
+        >=
+        FREEZE_UNLOCK_WORDS;
 
     eraseUnlocked =
-        wordsRecovered >= ERASE_UNLOCK_WORDS;
+        wordsRecovered
+        >=
+        ERASE_UNLOCK_WORDS;
 
     rewriteUnlocked =
-        wordsRecovered >= REWRITE_UNLOCK_WORDS;
+        wordsRecovered
+        >=
+        REWRITE_UNLOCK_WORDS;
 
-    freezeCharge =
+
+    stunMaxCharges =
+        stunUnlocked
+        ?
+        (
+            wordsRecovered
+            >=
+            SECOND_STUN_UNLOCK_WORDS
+            ?
+            2
+            :
+            1
+        )
+        :
+        0;
+
+
+    freezeMaxCharges =
+        freezeUnlocked
+        ?
+        (
+            wordsRecovered
+            >=
+            SECOND_FREEZE_UNLOCK_WORDS
+            ?
+            2
+            :
+            1
+        )
+        :
+        0;
+
+
+    if (
+        stunMaxCharges
+        >
+        oldStunMax
+    )
+    {
+        for (
+            int index = oldStunMax;
+            index < stunMaxCharges;
+            index++
+        )
+        {
+            stunCooldowns[index] = 0;
+        }
+    }
+
+
+    if (
+        oldFreezeMax == 0
+        &&
+        freezeMaxCharges > 0
+    )
+    {
+        freezeReadyCharges = 0;
+        freezeChargeProgress = 0;
+    }
+
+
+    freezeReadyCharges =
         std::clamp(
-            freezeCharge,
+            freezeReadyCharges,
             0,
-            FREEZE_WORD_COST
+            freezeMaxCharges
         );
+
+
+    freezeChargeProgress =
+        std::clamp(
+            freezeChargeProgress,
+            0,
+            FREEZE_WORD_COST - 1
+        );
+
 
     eraseCharge =
         std::clamp(
@@ -59,6 +151,7 @@ void QuillSystem::SyncUnlocks(
             0,
             ERASE_WORD_COST
         );
+
 
     rewriteCharge =
         std::clamp(
@@ -75,15 +168,27 @@ void QuillSystem::Update(
 {
     readyPulse += 0.08f;
 
+
     if (
-        gameplayActive
-        &&
-        stunUnlocked
-        &&
-        stunCooldownRemaining > 0
+        !gameplayActive
+        ||
+        !stunUnlocked
     )
     {
-        stunCooldownRemaining--;
+        return;
+    }
+
+
+    for (
+        int index = 0;
+        index < stunMaxCharges;
+        index++
+    )
+    {
+        if (stunCooldowns[index] > 0)
+        {
+            stunCooldowns[index]--;
+        }
     }
 }
 
@@ -97,14 +202,41 @@ void QuillSystem::OnWordsRecovered(
         return;
     }
 
+
     if (freezeUnlocked)
     {
-        freezeCharge =
-            std::min(
-                FREEZE_WORD_COST,
-                freezeCharge + count
-            );
+        for (
+            int index = 0;
+            index < count;
+            index++
+        )
+        {
+            if (
+                freezeReadyCharges
+                >=
+                freezeMaxCharges
+            )
+            {
+                freezeChargeProgress = 0;
+                break;
+            }
+
+
+            freezeChargeProgress++;
+
+
+            if (
+                freezeChargeProgress
+                >=
+                FREEZE_WORD_COST
+            )
+            {
+                freezeReadyCharges++;
+                freezeChargeProgress = 0;
+            }
+        }
     }
+
 
     if (eraseUnlocked)
     {
@@ -114,6 +246,7 @@ void QuillSystem::OnWordsRecovered(
                 eraseCharge + count
             );
     }
+
 
     if (rewriteUnlocked)
     {
@@ -156,12 +289,31 @@ bool QuillSystem::IsRewriteUnlocked() const
 }
 
 
+int QuillSystem::FindReadyStunSlot() const
+{
+    for (
+        int index = 0;
+        index < stunMaxCharges;
+        index++
+    )
+    {
+        if (stunCooldowns[index] <= 0)
+        {
+            return index;
+        }
+    }
+
+
+    return -1;
+}
+
+
 bool QuillSystem::IsStunReady() const
 {
     return
         stunUnlocked
         &&
-        stunCooldownRemaining <= 0;
+        FindReadyStunSlot() >= 0;
 }
 
 
@@ -170,7 +322,7 @@ bool QuillSystem::IsFreezeReady() const
     return
         freezeUnlocked
         &&
-        freezeCharge >= FREEZE_WORD_COST;
+        freezeReadyCharges > 0;
 }
 
 
@@ -179,7 +331,9 @@ bool QuillSystem::IsEraseReady() const
     return
         eraseUnlocked
         &&
-        eraseCharge >= ERASE_WORD_COST;
+        eraseCharge
+        >=
+        ERASE_WORD_COST;
 }
 
 
@@ -188,19 +342,27 @@ bool QuillSystem::IsRewriteReady() const
     return
         rewriteUnlocked
         &&
-        rewriteCharge >= REWRITE_WORD_COST;
+        rewriteCharge
+        >=
+        REWRITE_WORD_COST;
 }
 
 
 bool QuillSystem::UseStun()
 {
-    if (!IsStunReady())
+    const int slot =
+        FindReadyStunSlot();
+
+
+    if (slot < 0)
     {
         return false;
     }
 
-    stunCooldownRemaining =
+
+    stunCooldowns[slot] =
         STUN_COOLDOWN_FRAMES;
+
 
     return true;
 }
@@ -213,7 +375,9 @@ bool QuillSystem::UseFreeze()
         return false;
     }
 
-    freezeCharge = 0;
+
+    freezeReadyCharges--;
+
 
     return true;
 }
@@ -226,7 +390,9 @@ bool QuillSystem::UseErase()
         return false;
     }
 
+
     eraseCharge = 0;
+
 
     return true;
 }
@@ -239,59 +405,57 @@ bool QuillSystem::UseRewrite()
         return false;
     }
 
+
     rewriteCharge = 0;
+
 
     return true;
 }
 
 
-int QuillSystem::GetStunCooldownFrames() const
+int QuillSystem::GetStunMaxCharges() const
 {
-    return stunCooldownRemaining;
+    return stunMaxCharges;
 }
 
 
-float QuillSystem::ClampRatio(
-    float value
-)
+int QuillSystem::GetStunReadyCharges() const
 {
-    return std::clamp(
-        value,
-        0.0f,
-        1.0f
-    );
-}
+    int ready = 0;
 
 
-float QuillSystem::GetStunCooldownRatio() const
-{
-    if (!stunUnlocked)
+    for (
+        int index = 0;
+        index < stunMaxCharges;
+        index++
+    )
     {
-        return 0.0f;
+        if (stunCooldowns[index] <= 0)
+        {
+            ready++;
+        }
     }
 
-    if (stunCooldownRemaining <= 0)
-    {
-        return 1.0f;
-    }
 
-    return ClampRatio(
-        1.0f
-        -
-        static_cast<float>(
-            stunCooldownRemaining
-        )
-        /
-        static_cast<float>(
-            STUN_COOLDOWN_FRAMES
-        )
-    );
+    return ready;
 }
 
 
-int QuillSystem::GetFreezeCharge() const
+int QuillSystem::GetFreezeMaxCharges() const
 {
-    return freezeCharge;
+    return freezeMaxCharges;
+}
+
+
+int QuillSystem::GetFreezeReadyCharges() const
+{
+    return freezeReadyCharges;
+}
+
+
+int QuillSystem::GetFreezeChargeProgress() const
+{
+    return freezeChargeProgress;
 }
 
 
@@ -307,22 +471,16 @@ int QuillSystem::GetRewriteCharge() const
 }
 
 
-float QuillSystem::GetFreezeChargeRatio() const
-{
-    return ClampRatio(
-        static_cast<float>(freezeCharge)
-        /
-        static_cast<float>(FREEZE_WORD_COST)
-    );
-}
-
-
 float QuillSystem::GetEraseChargeRatio() const
 {
     return ClampRatio(
-        static_cast<float>(eraseCharge)
+        static_cast<float>(
+            eraseCharge
+        )
         /
-        static_cast<float>(ERASE_WORD_COST)
+        static_cast<float>(
+            ERASE_WORD_COST
+        )
     );
 }
 
@@ -330,99 +488,415 @@ float QuillSystem::GetEraseChargeRatio() const
 float QuillSystem::GetRewriteChargeRatio() const
 {
     return ClampRatio(
-        static_cast<float>(rewriteCharge)
+        static_cast<float>(
+            rewriteCharge
+        )
         /
-        static_cast<float>(REWRITE_WORD_COST)
+        static_cast<float>(
+            REWRITE_WORD_COST
+        )
     );
 }
 
 
-void QuillSystem::DrawAbilityBox(
+float QuillSystem::ClampRatio(
+    float value
+)
+{
+    return std::clamp(
+        value,
+        0.0f,
+        1.0f
+    );
+}
+
+
+std::string QuillSystem::Normalize(
+    const std::string& value
+)
+{
+    std::string result;
+
+
+    for (
+        unsigned char character
+        :
+        value
+    )
+    {
+        if (
+            character >= 'A'
+            &&
+            character <= 'Z'
+        )
+        {
+            result +=
+                static_cast<char>(
+                    character - 'A' + 'a'
+                );
+        }
+
+        else if (
+            character >= 'a'
+            &&
+            character <= 'z'
+        )
+        {
+            result +=
+                static_cast<char>(
+                    character
+                );
+        }
+    }
+
+
+    return result;
+}
+
+
+bool QuillSystem::CommandReady(
+    const std::string& command
+) const
+{
+    if (command == "stun")
+    {
+        return IsStunReady();
+    }
+
+
+    if (command == "freeze")
+    {
+        return IsFreezeReady();
+    }
+
+
+    if (command == "erase")
+    {
+        return IsEraseReady();
+    }
+
+
+    if (command == "rewrite")
+    {
+        return IsRewriteReady();
+    }
+
+
+    return false;
+}
+
+
+std::string QuillSystem::GetMatchingCommand(
+    const std::string& typed
+) const
+{
+    const std::string normalized =
+        Normalize(
+            typed
+        );
+
+
+    if (normalized.empty())
+    {
+        return "";
+    }
+
+
+    static const char* COMMANDS[] =
+    {
+        "stun",
+        "freeze",
+        "erase",
+        "rewrite"
+    };
+
+
+    for (
+        const char* command
+        :
+        COMMANDS
+    )
+    {
+        const std::string commandText =
+            command;
+
+
+        if (!CommandReady(commandText))
+        {
+            continue;
+        }
+
+
+        if (
+            normalized.size()
+            <=
+            commandText.size()
+            &&
+            commandText.compare(
+                0,
+                normalized.size(),
+                normalized
+            )
+            ==
+            0
+        )
+        {
+            return commandText;
+        }
+    }
+
+
+    return "";
+}
+
+
+std::string QuillSystem::GetCompletedCommand(
+    const std::string& typed
+) const
+{
+    const std::string normalized =
+        Normalize(
+            typed
+        );
+
+
+    if (CommandReady(normalized))
+    {
+        return normalized;
+    }
+
+
+    return "";
+}
+
+
+void QuillSystem::DrawChargePips(
     int x,
     int y,
-    int width,
-    int height,
-    const char* keyLabel,
+    int readyCharges,
+    int maxCharges
+) const
+{
+    for (
+        int index = 0;
+        index < maxCharges;
+        index++
+    )
+    {
+        const bool filled =
+            index < readyCharges;
+
+
+        DrawCircle(
+            x + index * 18,
+            y,
+            6.0f,
+            filled
+            ?
+            Color{
+                235,
+                200,
+                85,
+                255
+            }
+            :
+            Color{
+                65,
+                65,
+                75,
+                255
+            }
+        );
+
+
+        DrawCircleLines(
+            x + index * 18,
+            y,
+            6.0f,
+            Color{
+                175,
+                155,
+                100,
+                255
+            }
+        );
+    }
+}
+
+
+void QuillSystem::DrawAbilityLine(
+    int x,
+    int y,
     const char* name,
     bool unlocked,
     bool ready,
-    float fillRatio
+    const std::string& typed,
+    const std::string& status
 ) const
 {
-    DrawRectangle(
-        x,
-        y,
-        width,
-        height,
-        Color{18, 18, 28, 220}
-    );
+    std::string upperName =
+        name;
 
-    DrawRectangleLinesEx(
-        Rectangle{
-            static_cast<float>(x),
-            static_cast<float>(y),
-            static_cast<float>(width),
-            static_cast<float>(height)
-        },
-        2.0f,
-        unlocked
-        ?
-        Color{150, 135, 95, 255}
+
+    for (
+        char& character
         :
-        Color{60, 60, 68, 255}
-    );
-
-    if (unlocked)
+        upperName
+    )
     {
-        const int innerWidth =
-            width - 8;
-
-        DrawRectangle(
-            x + 4,
-            y + height - 10,
-            static_cast<int>(
-                innerWidth
-                *
-                ClampRatio(fillRatio)
-            ),
-            6,
-            ready
-            ?
-            Color{230, 200, 95, 255}
-            :
-            Color{115, 105, 90, 255}
-        );
+        if (
+            character >= 'a'
+            &&
+            character <= 'z'
+        )
+        {
+            character =
+                static_cast<char>(
+                    character - 'a' + 'A'
+                );
+        }
     }
 
-    DrawGameText(
-        unlocked ? keyLabel : "-",
-        x + 7,
-        y + 6,
-        18,
-        unlocked
-        ?
-        Color{240, 220, 150, 255}
-        :
-        Color{85, 85, 92, 255}
-    );
+
+    if (!unlocked)
+    {
+        DrawGameText(
+            upperName,
+            x,
+            y,
+            19,
+            Color{
+                75,
+                75,
+                84,
+                255
+            }
+        );
+
+
+        return;
+    }
+
+
+    const std::string command =
+        Normalize(
+            name
+        );
+
+
+    const std::string normalizedTyped =
+        Normalize(
+            typed
+        );
+
+
+    int highlighted = 0;
+
+
+    if (
+        ready
+        &&
+        !normalizedTyped.empty()
+        &&
+        normalizedTyped.size()
+        <=
+        command.size()
+        &&
+        command.compare(
+            0,
+            normalizedTyped.size(),
+            normalizedTyped
+        )
+        ==
+        0
+    )
+    {
+        highlighted =
+            static_cast<int>(
+                normalizedTyped.size()
+            );
+    }
+
+
+    const std::string completed =
+        upperName.substr(
+            0,
+            highlighted
+        );
+
+
+    const std::string remaining =
+        upperName.substr(
+            highlighted
+        );
+
 
     DrawGameText(
-        unlocked ? name : "LOCKED",
-        x + 31,
-        y + 6,
-        18,
-        unlocked
+        completed,
+        x,
+        y,
+        19,
+        Color{
+            250,
+            210,
+            80,
+            255
+        }
+    );
+
+
+    DrawGameText(
+        remaining,
+        x
+        +
+        MeasureGameText(
+            completed,
+            19
+        ),
+        y,
+        19,
+        ready
         ?
-        (
+        Color{
+            225,
+            225,
+            225,
+            255
+        }
+        :
+        Color{
+            145,
+            145,
+            155,
+            255
+        }
+    );
+
+
+    if (!status.empty())
+    {
+        DrawGameText(
+            status,
+            x + 98,
+            y,
+            17,
             ready
             ?
-            Color{255, 235, 155, 255}
+            Color{
+                220,
+                195,
+                110,
+                255
+            }
             :
-            Color{190, 190, 195, 255}
-        )
-        :
-        Color{85, 85, 92, 255}
-    );
+            Color{
+                130,
+                130,
+                140,
+                255
+            }
+        );
+    }
 }
 
 
@@ -436,7 +910,10 @@ void QuillSystem::DrawGoldenQuill(
 ) const
 {
     const float ratio =
-        ClampRatio(fillRatio);
+        ClampRatio(
+            fillRatio
+        );
+
 
     const float pulse =
         ready
@@ -446,52 +923,51 @@ void QuillSystem::DrawGoldenQuill(
             +
             0.5f
             *
-            std::sin(readyPulse)
+            std::sin(
+                readyPulse
+            )
         )
         :
         0.0f;
 
-    const Color whiteQuill =
+
+    const Color white =
     {
+        225,
+        225,
         220,
-        220,
-        215,
         255
     };
 
-    const Color goldQuill =
+
+    const Color gold =
     {
         static_cast<unsigned char>(
-            ready
-            ?
-            235 + pulse * 20.0f
-            :
-            235
+            225 + pulse * 25.0f
         ),
         static_cast<unsigned char>(
-            ready
-            ?
-            195 + pulse * 30.0f
-            :
-            195
+            185 + pulse * 40.0f
         ),
         static_cast<unsigned char>(
-            ready
-            ?
-            75 + pulse * 45.0f
-            :
-            75
+            65 + pulse * 45.0f
         ),
         255
     };
+
 
     DrawRectangle(
         x,
         y,
         width,
         height,
-        Color{18, 18, 28, 220}
+        Color{
+            18,
+            18,
+            28,
+            215
+        }
     );
+
 
     DrawRectangleLinesEx(
         Rectangle{
@@ -501,122 +977,256 @@ void QuillSystem::DrawGoldenQuill(
             static_cast<float>(height)
         },
         2.0f,
-        Color{165, 145, 85, 255}
+        Color{
+            155,
+            135,
+            90,
+            255
+        }
     );
+
 
     const int centerX =
         x + width / 2;
 
-    const int topY =
+
+    const int featherTop =
         y + 7;
 
-    const int bottomY =
+
+    const int featherBottom =
         y + height - 18;
 
-    auto drawQuill =
+
+    auto drawFeather =
         [&](
             Color color
         )
         {
+            // Shaft.
             DrawLineEx(
                 Vector2{
-                    static_cast<float>(centerX - 8),
-                    static_cast<float>(bottomY)
+                    static_cast<float>(
+                        centerX - 7
+                    ),
+                    static_cast<float>(
+                        featherBottom + 8
+                    )
                 },
                 Vector2{
-                    static_cast<float>(centerX + 10),
-                    static_cast<float>(topY + 6)
+                    static_cast<float>(
+                        centerX + 6
+                    ),
+                    static_cast<float>(
+                        featherTop + 8
+                    )
                 },
                 4.0f,
                 color
             );
 
+
+            // Pointed feather crown.
             DrawTriangle(
                 Vector2{
-                    static_cast<float>(centerX + 9),
-                    static_cast<float>(topY + 7)
+                    static_cast<float>(
+                        centerX + 6
+                    ),
+                    static_cast<float>(
+                        featherTop + 5
+                    )
                 },
                 Vector2{
-                    static_cast<float>(centerX + 20),
-                    static_cast<float>(topY)
+                    static_cast<float>(
+                        centerX + 18
+                    ),
+                    static_cast<float>(
+                        featherTop + 18
+                    )
                 },
                 Vector2{
-                    static_cast<float>(centerX + 13),
-                    static_cast<float>(topY + 23)
+                    static_cast<float>(
+                        centerX + 3
+                    ),
+                    static_cast<float>(
+                        featherTop + 22
+                    )
                 },
                 color
             );
 
+
+            // Feather barbs on both sides.
+            for (
+                int index = 0;
+                index < 5;
+                index++
+            )
+            {
+                const float t =
+                    static_cast<float>(
+                        index
+                    )
+                    /
+                    4.0f;
+
+
+                const float shaftX =
+                    static_cast<float>(
+                        centerX + 4
+                    )
+                    -
+                    t * 8.0f;
+
+
+                const float shaftY =
+                    static_cast<float>(
+                        featherTop + 18
+                    )
+                    +
+                    t
+                    *
+                    static_cast<float>(
+                        featherBottom
+                        -
+                        featherTop
+                        -
+                        18
+                    );
+
+
+                const float spread =
+                    18.0f
+                    -
+                    t * 6.0f;
+
+
+                DrawTriangle(
+                    Vector2{
+                        shaftX,
+                        shaftY
+                    },
+                    Vector2{
+                        shaftX - spread,
+                        shaftY - 7.0f
+                    },
+                    Vector2{
+                        shaftX - 2.0f,
+                        shaftY + 8.0f
+                    },
+                    color
+                );
+
+
+                DrawTriangle(
+                    Vector2{
+                        shaftX,
+                        shaftY - 3.0f
+                    },
+                    Vector2{
+                        shaftX + spread,
+                        shaftY - 10.0f
+                    },
+                    Vector2{
+                        shaftX + 2.0f,
+                        shaftY + 7.0f
+                    },
+                    color
+                );
+            }
+
+
+            // Writing nib.
             DrawTriangle(
                 Vector2{
-                    static_cast<float>(centerX + 8),
-                    static_cast<float>(topY + 8)
+                    static_cast<float>(
+                        centerX - 11
+                    ),
+                    static_cast<float>(
+                        featherBottom + 10
+                    )
                 },
                 Vector2{
-                    static_cast<float>(centerX - 1),
-                    static_cast<float>(topY + 4)
+                    static_cast<float>(
+                        centerX - 3
+                    ),
+                    static_cast<float>(
+                        featherBottom
+                    )
                 },
                 Vector2{
-                    static_cast<float>(centerX + 10),
-                    static_cast<float>(topY + 23)
+                    static_cast<float>(
+                        centerX - 9
+                    ),
+                    static_cast<float>(
+                        featherBottom + 17
+                    )
                 },
                 color
             );
         };
 
-    drawQuill(
-        whiteQuill
+
+    drawFeather(
+        white
     );
+
+
+    const int innerHeight =
+        height - 8;
+
 
     const int fillHeight =
         static_cast<int>(
-            (height - 12)
-            *
-            ratio
+            innerHeight * ratio
         );
+
 
     if (fillHeight > 0)
     {
         BeginScissorMode(
             x + 2,
-            y + height - 6 - fillHeight,
+            y + height - 4 - fillHeight,
             width - 4,
             fillHeight
         );
 
-        drawQuill(
-            goldQuill
+
+        drawFeather(
+            gold
         );
+
 
         EndScissorMode();
     }
 
-    DrawGameText(
-        "4",
-        x + 6,
-        y + 6,
-        18,
-        Color{240, 220, 150, 255}
-    );
 
-    DrawGameText(
-        "REWRITE",
-        x + 10,
-        y + height - 20,
-        15,
-        ready
-        ?
-        goldQuill
-        :
-        Color{190, 190, 195, 255}
-    );
+    if (ready)
+    {
+        DrawCircleLines(
+            centerX,
+            y + height / 2,
+            static_cast<float>(
+                width / 2 - 5
+            ),
+            Color{
+                240,
+                205,
+                90,
+                static_cast<unsigned char>(
+                    110 + pulse * 100.0f
+                )
+            }
+        );
+    }
 }
 
 
 void QuillSystem::DrawHUD(
     int screenWidth,
     int screenHeight,
-    bool showQuill
+    bool showQuill,
+    const std::string& typed
 ) const
 {
     if (
@@ -628,73 +1238,186 @@ void QuillSystem::DrawHUD(
         return;
     }
 
-    constexpr int boxWidth = 112;
-    constexpr int boxHeight = 36;
-    constexpr int gap = 8;
-    constexpr int rewriteWidth = 76;
 
-    const int totalWidth =
-        boxWidth * 3
-        +
-        gap * 3
-        +
-        rewriteWidth;
+    const int panelWidth = 270;
 
-    const int startX =
-        std::max(
-            12,
-            screenWidth - totalWidth - 12
-        );
+
+    const int panelHeight =
+        rewriteUnlocked
+        ?
+        152
+        :
+        112;
+
+
+    const int x =
+        screenWidth
+        -
+        panelWidth
+        -
+        14;
+
 
     const int y =
-        std::max(
-            12,
-            screenHeight - boxHeight - 14
-        );
+        screenHeight
+        -
+        panelHeight
+        -
+        14;
 
-    DrawAbilityBox(
-        startX,
+
+    DrawRectangle(
+        x,
         y,
-        boxWidth,
-        boxHeight,
-        "1",
+        panelWidth,
+        panelHeight,
+        Color{
+            12,
+            12,
+            20,
+            205
+        }
+    );
+
+
+    DrawRectangleLinesEx(
+        Rectangle{
+            static_cast<float>(x),
+            static_cast<float>(y),
+            static_cast<float>(panelWidth),
+            static_cast<float>(panelHeight)
+        },
+        2.0f,
+        Color{
+            95,
+            90,
+            105,
+            255
+        }
+    );
+
+
+    DrawAbilityLine(
+        x + 12,
+        y + 10,
         "STUN",
         stunUnlocked,
         IsStunReady(),
-        GetStunCooldownRatio()
+        typed,
+        ""
     );
 
-    DrawAbilityBox(
-        startX + boxWidth + gap,
-        y,
-        boxWidth,
-        boxHeight,
-        "2",
+
+    if (stunUnlocked)
+    {
+        DrawChargePips(
+            x + 205,
+            y + 20,
+            GetStunReadyCharges(),
+            GetStunMaxCharges()
+        );
+    }
+
+
+    std::string freezeStatus;
+
+
+    if (freezeUnlocked)
+    {
+        freezeStatus =
+            std::to_string(
+                freezeReadyCharges
+            )
+            +
+            "/"
+            +
+            std::to_string(
+                freezeMaxCharges
+            );
+
+
+        if (
+            freezeReadyCharges
+            <
+            freezeMaxCharges
+        )
+        {
+            freezeStatus +=
+                " "
+                +
+                std::to_string(
+                    freezeChargeProgress
+                )
+                +
+                "/"
+                +
+                std::to_string(
+                    FREEZE_WORD_COST
+                );
+        }
+    }
+
+
+    DrawAbilityLine(
+        x + 12,
+        y + 36,
         "FREEZE",
         freezeUnlocked,
         IsFreezeReady(),
-        GetFreezeChargeRatio()
+        typed,
+        freezeStatus
     );
 
-    DrawAbilityBox(
-        startX + (boxWidth + gap) * 2,
-        y,
-        boxWidth,
-        boxHeight,
-        "3",
+
+    DrawAbilityLine(
+        x + 12,
+        y + 62,
         "ERASE",
         eraseUnlocked,
         IsEraseReady(),
-        GetEraseChargeRatio()
+        typed,
+        eraseUnlocked
+        ?
+        std::to_string(
+            eraseCharge
+        )
+        +
+        "/"
+        +
+        std::to_string(
+            ERASE_WORD_COST
+        )
+        :
+        ""
     );
+
 
     if (rewriteUnlocked)
     {
+        DrawAbilityLine(
+            x + 12,
+            y + 88,
+            "REWRITE",
+            true,
+            IsRewriteReady(),
+            typed,
+            std::to_string(
+                rewriteCharge
+            )
+            +
+            "/"
+            +
+            std::to_string(
+                REWRITE_WORD_COST
+            )
+        );
+
+
         DrawGoldenQuill(
-            startX + (boxWidth + gap) * 3,
-            y - 24,
-            rewriteWidth,
-            60,
+            x + panelWidth - 62,
+            y + 84,
+            48,
+            58,
             IsRewriteReady(),
             GetRewriteChargeRatio()
         );

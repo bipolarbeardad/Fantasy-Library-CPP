@@ -3547,6 +3547,20 @@ namespace
             );
 
 
+        // A ready Quill command gets visual priority over an
+        // enemy word that happens to share the same prefix.
+        if (
+            !quillSystem
+                .GetMatchingCommand(
+                    combat.GetInput()
+                )
+                .empty()
+        )
+        {
+            return;
+        }
+
+
         if (typed.empty())
         {
             return;
@@ -3857,6 +3871,14 @@ namespace
                 );
 
 
+            const bool typingQuillCommand =
+                !quillSystem
+                    .GetMatchingCommand(
+                        combat.GetInput()
+                    )
+                    .empty();
+
+
             DrawGameText(
                 typed.c_str(),
                 playerX
@@ -3866,6 +3888,15 @@ namespace
                 -
                 45,
                 32,
+                typingQuillCommand
+                ?
+                Color{
+                    245,
+                    200,
+                    75,
+                    255
+                }
+                :
                 Color{
                     255,
                     230,
@@ -3885,7 +3916,8 @@ namespace
             quillSystem.DrawHUD(
                 GetScreenWidth(),
                 GetScreenHeight(),
-                true
+                true,
+                combat.GetInput()
             );
         }
 
@@ -4379,39 +4411,43 @@ namespace
         }
 
 
-        if (IsKeyPressed(KEY_ONE))
-        {
-            UseStunAbility();
-
-            return;
-        }
-
-
-        if (IsKeyPressed(KEY_TWO))
-        {
-            UseFreezeAbility();
-
-            return;
-        }
-
-
-        if (IsKeyPressed(KEY_THREE))
-        {
-            UseEraseAbility();
-
-            return;
-        }
-
-
-        if (IsKeyPressed(KEY_FOUR))
-        {
-            UseRewriteAbility();
-
-            return;
-        }
-
-
         combat.HandleInput();
+
+
+        const std::string completedCommand =
+            quillSystem.GetCompletedCommand(
+                combat.GetInput()
+            );
+
+
+        if (!completedCommand.empty())
+        {
+            if (completedCommand == "stun")
+            {
+                UseStunAbility();
+            }
+
+            else if (completedCommand == "freeze")
+            {
+                UseFreezeAbility();
+            }
+
+            else if (completedCommand == "erase")
+            {
+                UseEraseAbility();
+            }
+
+            else if (completedCommand == "rewrite")
+            {
+                UseRewriteAbility();
+            }
+
+
+            combat.ClearInput();
+
+            return;
+        }
+
 
         ProcessCombatMatch();
     }
