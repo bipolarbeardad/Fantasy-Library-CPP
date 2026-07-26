@@ -3714,16 +3714,544 @@ namespace
     }
 
 
-    void DrawAdventure()
+
+    float GetWorldRestorationProgress()
     {
+        return std::clamp(
+            static_cast<float>(
+                saveData.wordsRecovered
+            )
+            /
+            static_cast<float>(
+                FINAL_NORMAL_WORD_COUNT
+            ),
+            0.0f,
+            1.0f
+        );
+    }
+
+
+    void DrawInkBlotCluster(
+        int centerX,
+        int centerY,
+        int radius,
+        unsigned char alpha,
+        int seedOffset
+    )
+    {
+        if (alpha == 0)
+        {
+            return;
+        }
+
+
+        const Color ink =
+        {
+            7,
+            6,
+            9,
+            alpha
+        };
+
+
+        DrawCircle(
+            centerX,
+            centerY,
+            static_cast<float>(
+                radius
+            ),
+            ink
+        );
+
+
+        // Deterministic satellite splashes so the stains do not
+        // flicker or move from frame to frame.
+        for (
+            int index = 0;
+            index < 7;
+            index++
+        )
+        {
+            const int direction =
+                (
+                    index + seedOffset
+                )
+                %
+                8;
+
+
+            const int dxTable[8] =
+            {
+                -10,
+                8,
+                18,
+                22,
+                9,
+                -8,
+                -20,
+                -22
+            };
+
+
+            const int dyTable[8] =
+            {
+                -20,
+                -22,
+                -10,
+                8,
+                21,
+                23,
+                10,
+                -7
+            };
+
+
+            const int distance =
+                radius
+                +
+                5
+                +
+                (
+                    (
+                        index * 11
+                        +
+                        seedOffset * 7
+                    )
+                    %
+                    std::max(
+                        8,
+                        radius
+                    )
+                );
+
+
+            const int satelliteRadius =
+                std::max(
+                    3,
+                    radius / 4
+                    +
+                    (
+                        (
+                            index * 5
+                            +
+                            seedOffset
+                        )
+                        %
+                        std::max(
+                            3,
+                            radius / 4
+                        )
+                    )
+                );
+
+
+            DrawCircle(
+                centerX
+                +
+                dxTable[direction]
+                *
+                distance
+                /
+                24,
+                centerY
+                +
+                dyTable[direction]
+                *
+                distance
+                /
+                24,
+                static_cast<float>(
+                    satelliteRadius
+                ),
+                ink
+            );
+        }
+    }
+
+
+    void DrawRestoringPageBackground()
+    {
+        const int width =
+            GetScreenWidth();
+
+
+        const int height =
+            GetScreenHeight();
+
+
+        const float progress =
+            GetWorldRestorationProgress();
+
+
+        // The world genuinely begins in darkness.
         ClearBackground(
+            BLACK
+        );
+
+
+        // The parchment itself slowly fades into existence.
+        // It becomes recognizable early, but does not reach full
+        // brightness until most of the world has been restored.
+        const float parchmentVisibility =
+            std::clamp(
+                progress * 1.45f,
+                0.0f,
+                1.0f
+            );
+
+
+        if (parchmentVisibility <= 0.0f)
+        {
+            return;
+        }
+
+
+        const unsigned char parchmentAlpha =
+            static_cast<unsigned char>(
+                255.0f
+                *
+                parchmentVisibility
+            );
+
+
+        // Warm antique parchment.
+        DrawRectangle(
+            0,
+            0,
+            width,
+            height,
             Color{
-                15,
-                15,
-                25,
-                255
+                154,
+                128,
+                82,
+                parchmentAlpha
             }
         );
+
+
+        // Lighter inner page field.
+        const int margin =
+            std::max(
+                18,
+                width / 40
+            );
+
+
+        DrawRectangle(
+            margin,
+            margin,
+            width - margin * 2,
+            height - margin * 2,
+            Color{
+                188,
+                159,
+                105,
+                static_cast<unsigned char>(
+                    210.0f
+                    *
+                    parchmentVisibility
+                )
+            }
+        );
+
+
+        // Dark aged edges.
+        const unsigned char edgeAlpha =
+            static_cast<unsigned char>(
+                115.0f
+                *
+                parchmentVisibility
+            );
+
+
+        for (
+            int layer = 0;
+            layer < 5;
+            layer++
+        )
+        {
+            const int inset =
+                layer * 6;
+
+
+            DrawRectangleLinesEx(
+                Rectangle{
+                    static_cast<float>(
+                        inset
+                    ),
+                    static_cast<float>(
+                        inset
+                    ),
+                    static_cast<float>(
+                        width
+                        -
+                        inset * 2
+                    ),
+                    static_cast<float>(
+                        height
+                        -
+                        inset * 2
+                    )
+                },
+                6.0f,
+                Color{
+                    76,
+                    52,
+                    29,
+                    static_cast<unsigned char>(
+                        std::max(
+                            0,
+                            static_cast<int>(
+                                edgeAlpha
+                            )
+                            -
+                            layer * 14
+                        )
+                    )
+                }
+            );
+        }
+
+
+        // Faint manuscript lines slowly become visible too.
+        const unsigned char lineAlpha =
+            static_cast<unsigned char>(
+                42.0f
+                *
+                parchmentVisibility
+            );
+
+
+        const int lineSpacing =
+            std::max(
+                32,
+                height / 15
+            );
+
+
+        for (
+            int y =
+                margin + lineSpacing;
+            y
+            <
+                height
+                -
+                margin;
+            y +=
+                lineSpacing
+        )
+        {
+            DrawLine(
+                margin + 18,
+                y,
+                width - margin - 18,
+                y,
+                Color{
+                    98,
+                    70,
+                    42,
+                    lineAlpha
+                }
+            );
+        }
+
+
+        // Very subtle center crease so it feels like the inside
+        // of a large open storybook rather than a flat screen.
+        DrawRectangle(
+            width / 2 - 2,
+            margin,
+            4,
+            height - margin * 2,
+            Color{
+                91,
+                61,
+                35,
+                static_cast<unsigned char>(
+                    28.0f
+                    *
+                    parchmentVisibility
+                )
+            }
+        );
+
+
+        struct InkStain
+        {
+            float xRatio;
+            float yRatio;
+            int radius;
+            int clearsAtWord;
+            int seed;
+        };
+
+
+        static const InkStain stains[] =
+        {
+            {0.08f, 0.15f, 72, 80, 1},
+            {0.21f, 0.28f, 58, 145, 2},
+            {0.38f, 0.13f, 82, 220, 3},
+            {0.58f, 0.24f, 67, 300, 4},
+            {0.81f, 0.14f, 76, 375, 5},
+            {0.92f, 0.35f, 55, 440, 6},
+            {0.13f, 0.48f, 88, 510, 7},
+            {0.33f, 0.45f, 62, 590, 8},
+            {0.52f, 0.52f, 94, 675, 9},
+            {0.75f, 0.45f, 66, 755, 10},
+            {0.90f, 0.63f, 78, 835, 11},
+            {0.18f, 0.72f, 71, 910, 12},
+            {0.40f, 0.80f, 60, 980, 13},
+            {0.61f, 0.76f, 82, 1040, 14},
+            {0.81f, 0.84f, 65, 1100, 15},
+            {0.52f, 0.92f, 48, 1160, 16}
+        };
+
+
+        for (
+            const InkStain& stain
+            :
+            stains
+        )
+        {
+            // Each stain remains opaque until the player begins
+            // approaching its threshold, then fades away across
+            // roughly 120 recovered words.
+            constexpr int fadeRange =
+                120;
+
+
+            const int fadeStart =
+                std::max(
+                    0,
+                    stain.clearsAtWord
+                    -
+                    fadeRange
+                );
+
+
+            float stainStrength =
+                1.0f;
+
+
+            if (
+                saveData.wordsRecovered
+                >=
+                stain.clearsAtWord
+            )
+            {
+                stainStrength =
+                    0.0f;
+            }
+
+            else if (
+                saveData.wordsRecovered
+                >
+                fadeStart
+            )
+            {
+                stainStrength =
+                    1.0f
+                    -
+                    static_cast<float>(
+                        saveData.wordsRecovered
+                        -
+                        fadeStart
+                    )
+                    /
+                    static_cast<float>(
+                        stain.clearsAtWord
+                        -
+                        fadeStart
+                    );
+            }
+
+
+            // In the earliest moments the darkness is nearly
+            // complete, so stains blend into the black world.
+            stainStrength =
+                std::clamp(
+                    stainStrength,
+                    0.0f,
+                    1.0f
+                );
+
+
+            DrawInkBlotCluster(
+                static_cast<int>(
+                    width
+                    *
+                    stain.xRatio
+                ),
+                static_cast<int>(
+                    height
+                    *
+                    stain.yRatio
+                ),
+                std::max(
+                    18,
+                    static_cast<int>(
+                        stain.radius
+                        *
+                        (
+                            static_cast<float>(
+                                width
+                            )
+                            /
+                            900.0f
+                        )
+                    )
+                ),
+                static_cast<unsigned char>(
+                    245.0f
+                    *
+                    stainStrength
+                ),
+                stain.seed
+            );
+        }
+
+
+        // A thin veil of darkness retreats continuously even
+        // between the large stain thresholds.
+        const unsigned char veilAlpha =
+            static_cast<unsigned char>(
+                205.0f
+                *
+                (
+                    1.0f
+                    -
+                    progress
+                )
+                *
+                (
+                    1.0f
+                    -
+                    progress
+                )
+            );
+
+
+        if (veilAlpha > 0)
+        {
+            DrawRectangle(
+                0,
+                0,
+                width,
+                height,
+                Color{
+                    4,
+                    4,
+                    7,
+                    veilAlpha
+                }
+            );
+        }
+    }
+
+
+    void DrawAdventure()
+    {
+        DrawRestoringPageBackground();
 
 
         DrawPlayer();

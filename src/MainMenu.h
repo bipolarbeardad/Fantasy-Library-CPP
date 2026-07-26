@@ -21,14 +21,11 @@ enum class MenuAction
 class MainMenu
 {
 public:
-
     MainMenu();
-
 
     MenuAction HandleInput();
 
     void Draw() const;
-
 
     void SetSettings(
         const std::string& displayLabel,
@@ -37,7 +34,6 @@ public:
 
 
 private:
-
     enum class Mode
     {
         Main,
@@ -64,8 +60,34 @@ private:
 
     void DrawOptions() const;
 
+    void DrawBookCover() const;
+
+    void DrawBookDecorations(
+        int bookX,
+        int bookY,
+        int bookWidth,
+        int bookHeight
+    ) const;
+
+    void DrawRibbon(
+        int bookX,
+        int bookY,
+        int bookWidth
+    ) const;
+
+    void DrawTableBackground() const;
+
 
     static void DrawCenteredText(
+        const std::string& text,
+        int y,
+        int fontSize,
+        unsigned char r,
+        unsigned char g,
+        unsigned char b
+    );
+
+    static void DrawCenteredScriptText(
         const std::string& text,
         int y,
         int fontSize,

@@ -11,6 +11,8 @@ MemorySystem::MemorySystem()
     activeMemory(-1),
     visibleLines(1),
     showingPrologue(false),
+    showingQuillReveal(false),
+    showingSafeEnding(false),
     librarySelected(0),
     libraryReading(false)
 {
@@ -58,17 +60,7 @@ MemorySystem::MemorySystem()
                 "I held something in place.",
                 "A page.",
                 "",
-                "I was supposed to remember where someone stopped.",
-                "",
-                "...",
-                "",
-                "Something slips from between the restored pages.",
-                "",
-                "A quill.",
-                "",
-                "My hand remembers this.",
-                "",
-                "THE QUILL HAS BEEN RECOVERED"
+                "I was supposed to remember where someone stopped."
             }
         },
         {
@@ -199,11 +191,7 @@ MemorySystem::MemorySystem()
                 "I was the promise that someone could always find their way back.",
                 "A place held between one journey and the next.",
                 "",
-                "...",
-                "",
-                "I remembered your place.",
-                "",
-                "Safe."
+                "I remembered your place."
             }
         }
     };
@@ -250,6 +238,8 @@ int MemorySystem::GetNextMemoryIndex(
 void MemorySystem::BeginPrologue()
 {
     showingPrologue = true;
+    showingQuillReveal = false;
+    showingSafeEnding = false;
     activeMemory = -1;
     visibleLines = 1;
 }
@@ -270,6 +260,8 @@ void MemorySystem::BeginFragment(
 
 
     showingPrologue = false;
+    showingQuillReveal = false;
+    showingSafeEnding = false;
     activeMemory = index;
     visibleLines = 1;
 }
@@ -292,6 +284,28 @@ MemorySystem::GetActiveFragment() const
 }
 
 
+bool MemorySystem::IsQuillMemory() const
+{
+    const MemoryFragment* fragment = GetActiveFragment();
+
+    return
+        fragment != nullptr
+        &&
+        fragment->threshold == 50;
+}
+
+
+bool MemorySystem::IsSafeMemory() const
+{
+    const MemoryFragment* fragment = GetActiveFragment();
+
+    return
+        fragment != nullptr
+        &&
+        fragment->threshold == 1210;
+}
+
+
 bool MemorySystem::HandleFragmentInput()
 {
     if (IsKeyPressed(KEY_ESCAPE))
@@ -309,6 +323,20 @@ bool MemorySystem::HandleFragmentInput()
     )
     {
         return false;
+    }
+
+
+    if (showingQuillReveal)
+    {
+        showingQuillReveal = false;
+        return true;
+    }
+
+
+    if (showingSafeEnding)
+    {
+        showingSafeEnding = false;
+        return true;
     }
 
 
@@ -357,6 +385,28 @@ bool MemorySystem::HandleFragmentInput()
     }
 
 
+    if (
+        !showingPrologue
+        &&
+        IsQuillMemory()
+    )
+    {
+        showingQuillReveal = true;
+        return false;
+    }
+
+
+    if (
+        !showingPrologue
+        &&
+        IsSafeMemory()
+    )
+    {
+        showingSafeEnding = true;
+        return false;
+    }
+
+
     return true;
 }
 
@@ -392,8 +442,220 @@ void MemorySystem::DrawCentered(
 }
 
 
+void MemorySystem::DrawQuillReveal() const
+{
+    ClearBackground(Color{8, 8, 15, 255});
+
+    DrawCentered(
+        "Something slips from between the restored pages.",
+        145, 25, 225, 225, 220
+    );
+
+    DrawCentered(
+        "A quill.",
+        210, 31, 240, 225, 165
+    );
+
+    const int centerX = GetScreenWidth() / 2;
+    const int topY = 270;
+    const Color quillColor = {235, 220, 170, 255};
+
+    DrawLineEx(
+        Vector2{
+            static_cast<float>(centerX - 8),
+            static_cast<float>(topY + 105)
+        },
+        Vector2{
+            static_cast<float>(centerX + 12),
+            static_cast<float>(topY)
+        },
+        4.0f,
+        quillColor
+    );
+
+    for (int index = 0; index < 5; index++)
+    {
+        const float y =
+            static_cast<float>(topY + 12 + index * 16);
+
+        const float x =
+            static_cast<float>(centerX + 10 - index * 3);
+
+        DrawTriangle(
+            Vector2{x, y},
+            Vector2{x - 28.0f, y + 8.0f},
+            Vector2{x - 2.0f, y + 17.0f},
+            quillColor
+        );
+
+        DrawTriangle(
+            Vector2{x + 1.0f, y - 3.0f},
+            Vector2{x + 31.0f, y + 3.0f},
+            Vector2{x + 1.0f, y + 14.0f},
+            quillColor
+        );
+    }
+
+    DrawTriangle(
+        Vector2{
+            static_cast<float>(centerX - 10),
+            static_cast<float>(topY + 105)
+        },
+        Vector2{
+            static_cast<float>(centerX - 2),
+            static_cast<float>(topY + 94)
+        },
+        Vector2{
+            static_cast<float>(centerX - 9),
+            static_cast<float>(topY + 120)
+        },
+        quillColor
+    );
+
+    DrawCentered(
+        "My hand remembers this.",
+        420, 25, 225, 225, 220
+    );
+
+    DrawCentered(
+        "THE QUILL HAS BEEN RECOVERED",
+        470, 27, 240, 205, 95
+    );
+
+    DrawCentered(
+        "ENTER - Continue",
+        GetScreenHeight() - 55,
+        20, 160, 155, 145
+    );
+}
+
+
+void MemorySystem::DrawSafeEnding() const
+{
+    ClearBackground(
+        Color{
+            8,
+            8,
+            15,
+            255
+        }
+    );
+
+
+    DrawCentered(
+        "Safe.",
+        115,
+        42,
+        240,
+        225,
+        165
+    );
+
+
+    const char* theEnd =
+        "The End";
+
+
+    const int theEndSize =
+        62;
+
+
+    DrawScriptText(
+        theEnd,
+        GetScreenWidth() / 2
+        -
+        MeasureScriptText(
+            theEnd,
+            theEndSize
+        )
+        /
+        2,
+        190,
+        theEndSize,
+        Color{
+            240,
+            210,
+            115,
+            255
+        }
+    );
+
+
+    DrawCentered(
+        "I hope you enjoyed the book,",
+        315,
+        23,
+        220,
+        220,
+        215
+    );
+
+
+    DrawCentered(
+        "as well as restoring the world.",
+        347,
+        23,
+        220,
+        220,
+        215
+    );
+
+
+    const char* signature =
+        "- Bipolar Bear Gaming";
+
+
+    const int signatureSize =
+        32;
+
+
+    DrawScriptText(
+        signature,
+        GetScreenWidth() / 2
+        -
+        MeasureScriptText(
+            signature,
+            signatureSize
+        )
+        /
+        2,
+        405,
+        signatureSize,
+        Color{
+            205,
+            190,
+            145,
+            255
+        }
+    );
+
+
+    DrawCentered(
+        "ENTER - Return",
+        GetScreenHeight() - 55,
+        20,
+        160,
+        155,
+        145
+    );
+}
+
+
 void MemorySystem::DrawFragment() const
 {
+    if (showingQuillReveal)
+    {
+        DrawQuillReveal();
+        return;
+    }
+
+
+    if (showingSafeEnding)
+    {
+        DrawSafeEnding();
+        return;
+    }
+
     ClearBackground(
         Color{
             8,

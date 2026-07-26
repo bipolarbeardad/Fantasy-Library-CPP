@@ -53,6 +53,8 @@ private:
     int activeMemory;
     int visibleLines;
     bool showingPrologue;
+    bool showingQuillReveal;
+    bool showingSafeEnding;
 
     int librarySelected;
     bool libraryReading;
@@ -60,6 +62,11 @@ private:
     std::vector<std::string> prologueLines;
 
     const MemoryFragment* GetActiveFragment() const;
+    bool IsQuillMemory() const;
+    bool IsSafeMemory() const;
+
+    void DrawQuillReveal() const;
+    void DrawSafeEnding() const;
 
     static void DrawCentered(
         const std::string& text,
