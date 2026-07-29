@@ -345,8 +345,8 @@ WordManager::BuildPriorityPool(
     if (enemyType == EnemyType::Goblin)
     {
         // Goblins first consume the common words in the current
-        // chapter. Only after those are gone do they move to the
-        // other small words.
+        // chapter. Only after those are gone do they move to
+        // other short words.
         for (
             const WordRecord& record
             :
@@ -387,21 +387,18 @@ WordManager::BuildPriorityPool(
         }
 
 
-        if (!preferred.empty())
-        {
-            return preferred;
-        }
-
-
-        // If only longer words remain in the chapter, Goblins may
-        // still carry them so progression can never deadlock.
-        return chapterPool;
+        return
+            preferred.empty()
+            ?
+            chapterPool
+            :
+            preferred;
     }
 
 
     if (enemyType == EnemyType::Orc)
     {
-        // Orcs favor medium-sized vocabulary.
+        // Orcs favor solid medium-length words.
         for (
             const WordRecord& record
             :
@@ -430,7 +427,98 @@ WordManager::BuildPriorityPool(
     }
 
 
-    // Beasts favor the harder/longer vocabulary.
+    if (enemyType == EnemyType::Wolf)
+    {
+        // Wolves stay in the quick-to-type middle range.
+        for (
+            const WordRecord& record
+            :
+            chapterPool
+        )
+        {
+            if (
+                record.length >= 5
+                &&
+                record.length <= 8
+            )
+            {
+                preferred.push_back(
+                    record
+                );
+            }
+        }
+
+
+        return
+            preferred.empty()
+            ?
+            chapterPool
+            :
+            preferred;
+    }
+
+
+    if (enemyType == EnemyType::Bat)
+    {
+        // Bats lean a little harder than Wolves.
+        for (
+            const WordRecord& record
+            :
+            chapterPool
+        )
+        {
+            if (
+                record.length >= 6
+                &&
+                record.length <= 9
+            )
+            {
+                preferred.push_back(
+                    record
+                );
+            }
+        }
+
+
+        return
+            preferred.empty()
+            ?
+            chapterPool
+            :
+            preferred;
+    }
+
+
+    if (enemyType == EnemyType::Dragon)
+    {
+        // Dragons carry the longest vocabulary available in
+        // the active chapter.
+        for (
+            const WordRecord& record
+            :
+            chapterPool
+        )
+        {
+            if (record.length >= 8)
+            {
+                preferred.push_back(
+                    record
+                );
+            }
+        }
+
+
+        return
+            preferred.empty()
+            ?
+            chapterPool
+            :
+            preferred;
+    }
+
+
+    // Compatibility fallback in case an older save/build still
+    // produces EnemyType::Beast while transitioning to sprites.
     for (
         const WordRecord& record
         :
@@ -638,21 +726,25 @@ EnemyType WordManager::GetEnemyType(
     int recoveredCount
 ) const
 {
+    // First few words are deliberately simple and visually calm.
     if (recoveredCount < 15)
     {
         return EnemyType::Goblin;
     }
 
 
-    if (recoveredCount < 25)
+    // Introduce Orcs.
+    if (recoveredCount < 40)
     {
-        return
+        const int roll =
             GetRandomValue(
-                0,
-                1
-            )
-            ==
-            0
+                1,
+                100
+            );
+
+
+        return
+            roll <= 60
             ?
             EnemyType::Goblin
             :
@@ -660,26 +752,174 @@ EnemyType WordManager::GetEnemyType(
     }
 
 
+    // Wolves join the story.
+    if (recoveredCount < 100)
+    {
+        const int roll =
+            GetRandomValue(
+                1,
+                100
+            );
+
+
+        if (roll <= 40)
+        {
+            return EnemyType::Goblin;
+        }
+
+
+        if (roll <= 70)
+        {
+            return EnemyType::Orc;
+        }
+
+
+        return EnemyType::Wolf;
+    }
+
+
+    // Bats appear once the player has established the basics.
+    if (recoveredCount < 250)
+    {
+        const int roll =
+            GetRandomValue(
+                1,
+                100
+            );
+
+
+        if (roll <= 25)
+        {
+            return EnemyType::Goblin;
+        }
+
+
+        if (roll <= 50)
+        {
+            return EnemyType::Orc;
+        }
+
+
+        if (roll <= 80)
+        {
+            return EnemyType::Wolf;
+        }
+
+
+        return EnemyType::Bat;
+    }
+
+
+    // Dragons first appear as rare high-tier encounters.
+    if (recoveredCount < 500)
+    {
+        const int roll =
+            GetRandomValue(
+                1,
+                100
+            );
+
+
+        if (roll <= 20)
+        {
+            return EnemyType::Goblin;
+        }
+
+
+        if (roll <= 45)
+        {
+            return EnemyType::Orc;
+        }
+
+
+        if (roll <= 70)
+        {
+            return EnemyType::Wolf;
+        }
+
+
+        if (roll <= 90)
+        {
+            return EnemyType::Bat;
+        }
+
+
+        return EnemyType::Dragon;
+    }
+
+
+    // Midgame: all five creatures are firmly established.
+    if (recoveredCount < 800)
+    {
+        const int roll =
+            GetRandomValue(
+                1,
+                100
+            );
+
+
+        if (roll <= 15)
+        {
+            return EnemyType::Goblin;
+        }
+
+
+        if (roll <= 35)
+        {
+            return EnemyType::Orc;
+        }
+
+
+        if (roll <= 60)
+        {
+            return EnemyType::Wolf;
+        }
+
+
+        if (roll <= 85)
+        {
+            return EnemyType::Bat;
+        }
+
+
+        return EnemyType::Dragon;
+    }
+
+
+    // Late game: weaker creatures still exist, but dangerous
+    // airborne enemies become increasingly common.
     const int roll =
         GetRandomValue(
-            0,
-            2
+            1,
+            100
         );
 
 
-    if (roll == 0)
+    if (roll <= 10)
     {
         return EnemyType::Goblin;
     }
 
 
-    if (roll == 1)
+    if (roll <= 30)
     {
         return EnemyType::Orc;
     }
 
 
-    return EnemyType::Beast;
+    if (roll <= 50)
+    {
+        return EnemyType::Wolf;
+    }
+
+
+    if (roll <= 75)
+    {
+        return EnemyType::Bat;
+    }
+
+
+    return EnemyType::Dragon;
 }
 
 

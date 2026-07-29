@@ -31,6 +31,7 @@ add_executable(
     src/MemorySystem.cpp
     src/FinalBoss.cpp
     src/QuillSystem.cpp
+    src/EnemySprites.cpp
 )
 
 target_link_libraries(
@@ -54,3 +55,4 @@ if(MSVC)
         /ENTRY:mainCRTStartup
     )
 endif()
+

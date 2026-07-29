@@ -10,7 +10,14 @@ enum class EnemyType
 {
     Goblin,
     Orc,
-    Beast
+
+    // Kept temporarily so the current WordManager continues
+    // compiling until Wolf/Bat/Dragon spawning is wired in.
+    Beast,
+
+    Wolf,
+    Bat,
+    Dragon
 };
 
 
@@ -143,11 +150,21 @@ private:
 
     static float SpeedValue(EnemySpeed type);
 
-    void DrawStar(
-        float centerX,
-        float centerY,
-        float radius = 7.0f
+    int GetAnimationFrame() const;
+
+    EnemyType GetSpriteType() const;
+
+    float GetSpriteDrawSize() const;
+
+    float GetSpriteYOffset() const;
+
+    void DrawSpriteEnemy(
+        float drawX,
+        float drawY
     ) const;
+
+    // Primitive fallback drawings remain so enemies are still
+    // visible if enemy_sprites.png cannot be loaded.
 
     void DrawGoblin(
         float drawX,

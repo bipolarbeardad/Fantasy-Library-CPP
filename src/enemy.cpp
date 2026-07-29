@@ -1,5 +1,6 @@
 #include "Enemy.h"
 
+#include "EnemySprites.h"
 #include "GameFont.h"
 
 #include <algorithm>
@@ -288,8 +289,30 @@ void Enemy::Update()
     }
 
 
+    // Lower lanes begin converging toward the Word Seeker
+    // earlier so their sprites and labels pass above the Quill HUD.
+    // Upper lanes keep a later merge because they do not intersect it.
+    float convergeDistance =
+        95.0f;
+
+
+    if (lane == 3)
+    {
+        convergeDistance =
+            185.0f;
+    }
+
+    else if (lane == 4)
+    {
+        convergeDistance =
+            285.0f;
+    }
+
+
     const float convergeX =
-        targetX + 75.0f;
+        targetX
+        +
+        convergeDistance;
 
 
     if (x > convergeX)
@@ -335,10 +358,11 @@ void Enemy::Update()
     }
 
 
+    // Advance the sprite animation independently of movement speed.
+    // At 60 FPS, 0.0266667 per update gives the four-step
+    // 0 -> 1 -> 2 -> 1 cycle a total duration of about 2.5 seconds.
     walkPhase +=
-        0.08f
-        +
-        speed * 0.05f;
+        0.0266667f;
 }
 
 
@@ -417,63 +441,189 @@ void Enemy::UpdateDefeat()
 }
 
 
-void Enemy::DrawStar(
-    float centerX,
-    float centerY,
-    float radius
-) const
+int Enemy::GetAnimationFrame() const
 {
-    Vector2 points[10];
+    // Four animation phases:
+    //
+    // 0 -> 1 -> 2 -> 1
+    //
+    // walkPhase advances by 0.0266667 each game update.
+    // At 60 FPS that produces one complete cycle in
+    // approximately 2.5 seconds.
+    const int phase =
+        static_cast<int>(
+            walkPhase
+        )
+        &
+        3;
 
 
-    for (
-        int index = 0;
-        index < 10;
-        index++
-    )
+    switch (phase)
     {
-        const float angle =
-            -PI_F / 2.0f
-            +
-            index * PI_F / 5.0f;
+        case 0:
+            return 0;
+
+        case 1:
+            return 1;
+
+        case 2:
+            return 2;
+
+        default:
+            return 1;
+    }
+}
 
 
-        const float currentRadius =
-            (
-                index % 2 == 0
-            )
-            ?
-            radius
-            :
-            radius * 0.45f;
-
-
-        points[index] =
-        {
-            centerX
-            +
-            std::cos(angle)
-            *
-            currentRadius,
-
-            centerY
-            +
-            std::sin(angle)
-            *
-            currentRadius
-        };
+EnemyType Enemy::GetSpriteType() const
+{
+    // Until WordManager is updated, old Beast spawns use the Wolf
+    // row so the current game remains compatible.
+    if (enemyType == EnemyType::Beast)
+    {
+        return EnemyType::Wolf;
     }
 
 
-    DrawTriangleFan(
-        points,
-        10,
-        Color{
-            245,
-            215,
-            70,
-            255
+    return enemyType;
+}
+
+
+float Enemy::GetSpriteDrawSize() const
+{
+    switch (GetSpriteType())
+    {
+        case EnemyType::Goblin:
+            return 54.0f;
+
+        case EnemyType::Orc:
+            return 68.0f;
+
+        case EnemyType::Wolf:
+            return 64.0f;
+
+        case EnemyType::Bat:
+            return 60.0f;
+
+        case EnemyType::Dragon:
+            return 78.0f;
+
+        default:
+            return 62.0f;
+    }
+}
+
+
+float Enemy::GetSpriteYOffset() const
+{
+    switch (GetSpriteType())
+    {
+        case EnemyType::Bat:
+            return -10.0f;
+
+        case EnemyType::Dragon:
+            return -5.0f;
+
+        default:
+            return 0.0f;
+    }
+}
+
+
+void Enemy::DrawSpriteEnemy(
+    float drawX,
+    float drawY
+) const
+{
+    if (!EnemySprites::IsLoaded())
+    {
+        switch (GetSpriteType())
+        {
+            case EnemyType::Goblin:
+                DrawGoblin(
+                    drawX,
+                    drawY
+                );
+                return;
+
+            case EnemyType::Orc:
+                DrawOrc(
+                    drawX,
+                    drawY
+                );
+                return;
+
+            default:
+                DrawBeast(
+                    drawX,
+                    drawY
+                );
+                return;
         }
+    }
+
+
+    const EnemyType spriteType =
+        GetSpriteType();
+
+
+    const Rectangle source =
+        EnemySprites::GetFrame(
+            spriteType,
+            GetAnimationFrame()
+        );
+
+
+    const float drawSize =
+        GetSpriteDrawSize();
+
+
+    float spriteY =
+        drawY
+        +
+        GetSpriteYOffset();
+
+
+    // Small airborne bob. It pauses naturally during Quill
+    // stun/freeze because walkPhase also pauses.
+    if (
+        spriteType == EnemyType::Bat
+        ||
+        spriteType == EnemyType::Dragon
+    )
+    {
+        spriteY +=
+            std::sin(
+                walkPhase * 0.8f
+            )
+            *
+            3.0f;
+    }
+
+
+    const Rectangle destination =
+    {
+        drawX,
+        spriteY,
+        drawSize,
+        drawSize
+    };
+
+
+    const Vector2 origin =
+    {
+        drawSize / 2.0f,
+        drawSize / 2.0f
+    };
+
+
+    DrawTexturePro(
+        EnemySprites::GetTexture(),
+        source,
+        destination,
+        origin,
+        0.0f,
+        WHITE
     );
 }
 
@@ -1117,118 +1267,9 @@ void Enemy::Draw() const
     }
 
 
-    switch (enemyType)
-    {
-        case EnemyType::Goblin:
-            DrawGoblin(
-                drawX,
-                drawY
-            );
-            break;
-
-
-        case EnemyType::Orc:
-            DrawOrc(
-                drawX,
-                drawY
-            );
-            break;
-
-
-        default:
-            DrawBeast(
-                drawX,
-                drawY
-            );
-            break;
-    }
-
-
-    std::string word =
-        GetWordDisplay();
-
-
-    for (char& character : word)
-    {
-        if (
-            character >= 'a'
-            &&
-            character <= 'z'
-        )
-        {
-            character =
-                static_cast<char>(
-                    character
-                    -
-                    'a'
-                    +
-                    'A'
-                );
-        }
-    }
-
-
-    constexpr int fontSize =
-        27;
-
-
-    const int width =
-        MeasureGameText(
-            word,
-            fontSize
-        );
-
-
-    DrawGameText(
-        word,
-        static_cast<int>(
-            drawX
-            -
-            width / 2
-        ),
-        static_cast<int>(
-            drawY - 62
-        ),
-        fontSize,
-        Color{
-            245,
-            245,
-            245,
-            255
-        }
+    DrawSpriteEnemy(
+        drawX,
+        drawY
     );
 
-
-    const int stars =
-        GetStarCount();
-
-
-    if (stars > 0)
-    {
-        const float totalWidth =
-            stars * 18.0f;
-
-
-        const float startX =
-            drawX
-            -
-            totalWidth / 2.0f
-            +
-            9.0f;
-
-
-        for (
-            int index = 0;
-            index < stars;
-            index++
-        )
-        {
-            DrawStar(
-                startX
-                +
-                index * 18.0f,
-                drawY - 84
-            );
-        }
-    }
 }

@@ -4,6 +4,7 @@
 #include "raylib.h"
 
 #include <algorithm>
+#include <cmath>
 
 
 MemorySystem::MemorySystem()
@@ -14,7 +15,9 @@ MemorySystem::MemorySystem()
     showingQuillReveal(false),
     showingSafeEnding(false),
     librarySelected(0),
-    libraryReading(false)
+    libraryReading(false),
+    viewportWidth(900),
+    viewportHeight(600)
 {
     prologueLines =
     {
@@ -195,6 +198,26 @@ MemorySystem::MemorySystem()
             }
         }
     };
+}
+
+
+void MemorySystem::SetViewportSize(
+    int width,
+    int height
+)
+{
+    viewportWidth =
+        std::max(
+            1,
+            width
+        );
+
+
+    viewportHeight =
+        std::max(
+            1,
+            height
+        );
 }
 
 
@@ -418,7 +441,7 @@ void MemorySystem::DrawCentered(
     unsigned char r,
     unsigned char g,
     unsigned char b
-)
+) const
 {
     const int width =
         MeasureGameText(
@@ -429,7 +452,7 @@ void MemorySystem::DrawCentered(
 
     DrawGameText(
         text.c_str(),
-        GetScreenWidth() / 2 - width / 2,
+        viewportWidth / 2 - width / 2,
         y,
         fontSize,
         Color{
@@ -442,90 +465,563 @@ void MemorySystem::DrawCentered(
 }
 
 
-void MemorySystem::DrawQuillReveal() const
+namespace
 {
-    ClearBackground(Color{8, 8, 15, 255});
-
-    DrawCentered(
-        "Something slips from between the restored pages.",
-        145, 25, 225, 225, 220
-    );
-
-    DrawCentered(
-        "A quill.",
-        210, 31, 240, 225, 165
-    );
-
-    const int centerX = GetScreenWidth() / 2;
-    const int topY = 270;
-    const Color quillColor = {235, 220, 170, 255};
-
-    DrawLineEx(
-        Vector2{
-            static_cast<float>(centerX - 8),
-            static_cast<float>(topY + 105)
-        },
-        Vector2{
-            static_cast<float>(centerX + 12),
-            static_cast<float>(topY)
-        },
-        4.0f,
-        quillColor
-    );
-
-    for (int index = 0; index < 5; index++)
+    void DrawFinalQuill(
+        Vector2 nibTip
+    )
     {
-        const float y =
-            static_cast<float>(topY + 12 + index * 16);
+        constexpr float length =
+            300.0f;
 
-        const float x =
-            static_cast<float>(centerX + 10 - index * 3);
+        constexpr float rotationDegrees =
+            -58.0f;
 
-        DrawTriangle(
-            Vector2{x, y},
-            Vector2{x - 28.0f, y + 8.0f},
-            Vector2{x - 2.0f, y + 17.0f},
-            quillColor
+        constexpr float width =
+            40.0f;
+
+        constexpr float exposedShaftRatio =
+            0.28f;
+
+
+        const float angle =
+            rotationDegrees
+            *
+            DEG2RAD;
+
+
+        const Vector2 direction =
+        {
+            std::cosf(angle),
+            std::sinf(angle)
+        };
+
+
+        const Vector2 side =
+        {
+            -direction.y,
+            direction.x
+        };
+
+
+        const Color feather =
+        {
+            239,
+            234,
+            217,
+            255
+        };
+
+
+        const Color shaftColor =
+        {
+            205,
+            176,
+            92,
+            255
+        };
+
+
+        const Color shaftDark =
+        {
+            122,
+            94,
+            44,
+            255
+        };
+
+
+        const float exposedShaft =
+            length
+            *
+            exposedShaftRatio;
+
+
+        const Vector2 featherTip =
+        {
+            nibTip.x
+            +
+            direction.x
+            *
+            length,
+
+            nibTip.y
+            +
+            direction.y
+            *
+            length
+        };
+
+
+        DrawLineEx(
+            nibTip,
+            featherTip,
+            5.0f,
+            shaftDark
         );
 
+
+        DrawLineEx(
+            Vector2{
+                nibTip.x
+                +
+                side.x,
+                nibTip.y
+                +
+                side.y
+            },
+            Vector2{
+                featherTip.x
+                +
+                side.x,
+                featherTip.y
+                +
+                side.y
+            },
+            2.5f,
+            shaftColor
+        );
+
+
+        constexpr int sectionCount =
+            8;
+
+
+        for (
+            int index = 0;
+            index < sectionCount;
+            index++
+        )
+        {
+            const float t0 =
+                static_cast<float>(
+                    index
+                )
+                /
+                static_cast<float>(
+                    sectionCount
+                );
+
+
+            const float t1 =
+                static_cast<float>(
+                    index + 1
+                )
+                /
+                static_cast<float>(
+                    sectionCount
+                );
+
+
+            const float along0 =
+                exposedShaft
+                +
+                (
+                    length
+                    -
+                    exposedShaft
+                )
+                *
+                t0;
+
+
+            const float along1 =
+                exposedShaft
+                +
+                (
+                    length
+                    -
+                    exposedShaft
+                )
+                *
+                t1;
+
+
+            const Vector2 center0 =
+            {
+                nibTip.x
+                +
+                direction.x
+                *
+                along0,
+
+                nibTip.y
+                +
+                direction.y
+                *
+                along0
+            };
+
+
+            const Vector2 center1 =
+            {
+                nibTip.x
+                +
+                direction.x
+                *
+                along1,
+
+                nibTip.y
+                +
+                direction.y
+                *
+                along1
+            };
+
+
+            const float taper0 =
+                std::sinf(
+                    (
+                        0.12f
+                        +
+                        0.88f * t0
+                    )
+                    *
+                    PI
+                );
+
+
+            const float taper1 =
+                std::sinf(
+                    (
+                        0.12f
+                        +
+                        0.88f * t1
+                    )
+                    *
+                    PI
+                );
+
+
+            const float leftWidth0 =
+                width
+                *
+                taper0;
+
+
+            const float leftWidth1 =
+                width
+                *
+                taper1;
+
+
+            const float rightWidth0 =
+                leftWidth0
+                *
+                0.88f;
+
+
+            const float rightWidth1 =
+                leftWidth1
+                *
+                0.88f;
+
+
+            const Vector2 left0 =
+            {
+                center0.x
+                +
+                side.x
+                *
+                leftWidth0,
+
+                center0.y
+                +
+                side.y
+                *
+                leftWidth0
+            };
+
+
+            const Vector2 left1 =
+            {
+                center1.x
+                +
+                side.x
+                *
+                leftWidth1,
+
+                center1.y
+                +
+                side.y
+                *
+                leftWidth1
+            };
+
+
+            const Vector2 right0 =
+            {
+                center0.x
+                -
+                side.x
+                *
+                rightWidth0,
+
+                center0.y
+                -
+                side.y
+                *
+                rightWidth0
+            };
+
+
+            const Vector2 right1 =
+            {
+                center1.x
+                -
+                side.x
+                *
+                rightWidth1,
+
+                center1.y
+                -
+                side.y
+                *
+                rightWidth1
+            };
+
+
+            const Vector2 leftPoint =
+            {
+                left0.x
+                +
+                direction.x
+                *
+                length
+                *
+                0.055f,
+
+                left0.y
+                +
+                direction.y
+                *
+                length
+                *
+                0.055f
+            };
+
+
+            const Vector2 rightPoint =
+            {
+                right0.x
+                +
+                direction.x
+                *
+                length
+                *
+                0.055f,
+
+                right0.y
+                +
+                direction.y
+                *
+                length
+                *
+                0.055f
+            };
+
+
+            DrawTriangle(
+                center0,
+                leftPoint,
+                left1,
+                feather
+            );
+
+
+            DrawTriangle(
+                center0,
+                left1,
+                center1,
+                feather
+            );
+
+
+            DrawTriangle(
+                center0,
+                center1,
+                right1,
+                feather
+            );
+
+
+            DrawTriangle(
+                center0,
+                right1,
+                rightPoint,
+                feather
+            );
+        }
+
+
+        const Vector2 crownBase =
+        {
+            featherTip.x
+            -
+            direction.x
+            *
+            24.0f,
+
+            featherTip.y
+            -
+            direction.y
+            *
+            24.0f
+        };
+
+
         DrawTriangle(
-            Vector2{x + 1.0f, y - 3.0f},
-            Vector2{x + 31.0f, y + 3.0f},
-            Vector2{x + 1.0f, y + 14.0f},
-            quillColor
+            featherTip,
+            Vector2{
+                crownBase.x
+                +
+                side.x * 14.0f,
+
+                crownBase.y
+                +
+                side.y * 14.0f
+            },
+            Vector2{
+                crownBase.x
+                -
+                side.x * 14.0f,
+
+                crownBase.y
+                -
+                side.y * 14.0f
+            },
+            feather
+        );
+
+
+        // Gold nib.
+        const Vector2 nibBase =
+        {
+            nibTip.x
+            +
+            direction.x
+            *
+            16.0f,
+
+            nibTip.y
+            +
+            direction.y
+            *
+            16.0f
+        };
+
+
+        DrawTriangle(
+            nibTip,
+            Vector2{
+                nibBase.x
+                +
+                side.x * 5.5f,
+
+                nibBase.y
+                +
+                side.y * 5.5f
+            },
+            Vector2{
+                nibBase.x
+                -
+                side.x * 5.5f,
+
+                nibBase.y
+                -
+                side.y * 5.5f
+            },
+            GOLD
         );
     }
+}
 
-    DrawTriangle(
-        Vector2{
-            static_cast<float>(centerX - 10),
-            static_cast<float>(topY + 105)
-        },
-        Vector2{
-            static_cast<float>(centerX - 2),
-            static_cast<float>(topY + 94)
-        },
-        Vector2{
-            static_cast<float>(centerX - 9),
-            static_cast<float>(topY + 120)
-        },
-        quillColor
+
+void MemorySystem::DrawQuillReveal() const
+{
+    ClearBackground(
+        Color{
+            8,
+            8,
+            15,
+            255
+        }
     );
+
+
+    // Keep the finished Quill geometry completely untouched.
+    // The text is arranged around it instead of shrinking it.
+    DrawCentered(
+        "Something slips from between the restored pages.",
+        55,
+        25,
+        225,
+        225,
+        220
+    );
+
+
+    const int centerX =
+        viewportWidth / 2;
+
+
+    // The Quill occupies the center of the screen from roughly
+    // y=175 to y=430. Put its label safely to the right.
+    const char* quillLabel =
+        "A quill.";
+
+
+    DrawGameText(
+        quillLabel,
+        centerX + 125,
+        145,
+        31,
+        Color{
+            240,
+            225,
+            165,
+            255
+        }
+    );
+
+
+    DrawFinalQuill(
+        Vector2{
+            static_cast<float>(
+                centerX - 105
+            ),
+            430.0f
+        }
+    );
+
 
     DrawCentered(
         "My hand remembers this.",
-        420, 25, 225, 225, 220
+        455,
+        25,
+        225,
+        225,
+        220
     );
+
 
     DrawCentered(
         "THE QUILL HAS BEEN RECOVERED",
-        470, 27, 240, 205, 95
+        500,
+        27,
+        240,
+        205,
+        95
     );
+
 
     DrawCentered(
         "ENTER - Continue",
-        GetScreenHeight() - 55,
-        20, 160, 155, 145
+        viewportHeight - 38,
+        20,
+        160,
+        155,
+        145
     );
 }
 
@@ -562,7 +1058,7 @@ void MemorySystem::DrawSafeEnding() const
 
     DrawScriptText(
         theEnd,
-        GetScreenWidth() / 2
+        viewportWidth / 2
         -
         MeasureScriptText(
             theEnd,
@@ -611,7 +1107,7 @@ void MemorySystem::DrawSafeEnding() const
 
     DrawScriptText(
         signature,
-        GetScreenWidth() / 2
+        viewportWidth / 2
         -
         MeasureScriptText(
             signature,
@@ -632,7 +1128,7 @@ void MemorySystem::DrawSafeEnding() const
 
     DrawCentered(
         "ENTER - Return",
-        GetScreenHeight() - 55,
+        viewportHeight - 55,
         20,
         160,
         155,
@@ -766,7 +1262,7 @@ void MemorySystem::DrawFragment() const
         "ENTER - Continue"
         :
         "ENTER - Remember",
-        GetScreenHeight() - 55,
+        viewportHeight - 55,
         20,
         160,
         155,
@@ -908,7 +1404,7 @@ void MemorySystem::DrawLibrary(
 
         DrawCentered(
             "ESC - Back to Memories",
-            GetScreenHeight() - 28,
+            viewportHeight - 28,
             18,
             140,
             140,
@@ -1051,7 +1547,7 @@ void MemorySystem::DrawLibrary(
 
     DrawCentered(
         "W/S or Up/Down Select   ENTER Read   ESC Menu",
-        GetScreenHeight() - 35,
+        viewportHeight - 35,
         18,
         155,
         155,

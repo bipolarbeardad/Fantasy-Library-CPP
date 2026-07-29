@@ -60,9 +60,31 @@ FinalBoss::FinalBoss()
     wordTimer(0),
     wordTimerMax(0),
     slashTimer(0),
-    pulse(0.0f)
+    pulse(0.0f),
+    viewportWidth(900),
+    viewportHeight(600)
 {
     Reset();
+}
+
+
+void FinalBoss::SetViewportSize(
+    int width,
+    int height
+)
+{
+    viewportWidth =
+        std::max(
+            1,
+            width
+        );
+
+
+    viewportHeight =
+        std::max(
+            1,
+            height
+        );
 }
 
 
@@ -386,10 +408,10 @@ bool FinalBoss::Update()
 void FinalBoss::Draw() const
 {
     const int centerX =
-        GetScreenWidth() / 2;
+        viewportWidth / 2;
 
     const int centerY =
-        GetScreenHeight() / 2 + 25;
+        viewportHeight / 2 + 25;
 
 
     const float breathing =

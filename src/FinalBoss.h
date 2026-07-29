@@ -10,6 +10,11 @@ public:
 
     void Reset();
 
+    void SetViewportSize(
+        int width,
+        int height
+    );
+
     const std::string& GetCurrentWord() const;
     const std::string& GetReactionText() const;
 
@@ -50,6 +55,9 @@ private:
     int slashTimer;
 
     float pulse;
+
+    int viewportWidth;
+    int viewportHeight;
 
     std::string reactionText;
 

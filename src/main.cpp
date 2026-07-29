@@ -2,6 +2,7 @@
 
 #include "Combat.h"
 #include "Enemy.h"
+#include "EnemySprites.h"
 #include "FinalBoss.h"
 #include "GameFont.h"
 #include "MainMenu.h"
@@ -24,17 +25,25 @@ namespace
     constexpr int FPS = 60;
     constexpr int MAX_HEALTH = 3;
 
+    // The entire game is authored against one fixed logical canvas.
+    // Window/fullscreen resolution only changes how this canvas is
+    // presented, not gameplay geometry or UI placement.
+    constexpr int GAME_WIDTH = 900;
+    constexpr int GAME_HEIGHT = 600;
+
     // ID 1125 is reserved exclusively for The Stained Author.
     constexpr int FINAL_WORD_ID = 1125;
     constexpr int FINAL_NORMAL_WORD_COUNT = 1209;
 
     enum class GameState
     {
+        Splash,
         Menu,
         Adventure,
         Story,
         Memory,
         MemoryLibrary,
+        ChapterUnlock,
         FinalBossIntro,
         FinalBoss,
         Ending
@@ -47,6 +56,27 @@ namespace
         int width;
         int height;
         bool fullscreen;
+    };
+
+
+    enum class WordSparkPhase
+    {
+        Attack,
+        Return
+    };
+
+
+    struct WordSparkEffect
+    {
+        Vector2 start;
+        Vector2 target;
+        Vector2 position;
+
+        WordSparkPhase phase;
+
+        float progress;
+        int age;
+        int seed;
     };
 
 
@@ -80,7 +110,7 @@ namespace
 
 
     GameState currentState =
-        GameState::Menu;
+        GameState::Splash;
 
 
     bool running =
@@ -105,6 +135,21 @@ namespace
 
     Music backgroundMusic = {};
     bool backgroundMusicLoaded = false;
+
+
+    int splashFrame = 0;
+
+    constexpr int SPLASH_TYPE_START = 20;
+    constexpr int SPLASH_FRAMES_PER_LETTER = 5;
+    constexpr int SPLASH_GAMING_START = 102;
+    constexpr int SPLASH_PRESENTS_START = 132;
+
+    // Presents finishes fading in at frame 160.
+    // Hold the completed studio title for one full second
+    // before the lightning begins.
+    constexpr int SPLASH_LIGHTNING_START = 220;
+    constexpr int SPLASH_MENU_FADE_START = 248;
+    constexpr int SPLASH_END = 298;
 
 
     std::unique_ptr<StoryReader>
@@ -160,9 +205,36 @@ namespace
     int waveClearTimer = 0;
 
 
-    int chapterRestoredTimer = 0;
+    std::vector<WordSparkEffect>
+        wordSparkEffects;
 
-    int chapterRestoredNumber = -1;
+
+    int pageRestorePulse = 0;
+
+
+    enum class ChapterUnlockPhase
+    {
+        Closing,
+        Showing,
+        Opening
+    };
+
+
+    int pendingChapterUnlock = -1;
+
+    int chapterUnlockNumber = -1;
+
+    ChapterUnlockPhase chapterUnlockPhase =
+        ChapterUnlockPhase::Closing;
+
+    int chapterUnlockFrame = 0;
+
+    constexpr int CHAPTER_CLOSE_FRAMES = 36;
+
+    constexpr int CHAPTER_OPEN_FRAMES = 30;
+
+
+    int wrongInputFrame = 0;
 
 
     // Total enemies still waiting to enter the current wave.
@@ -229,9 +301,11 @@ namespace
     int finalBossGameOverSelected = 0;
 
 
-    // Forward declaration because the final boss retry/menu
-    // handler uses this before its full definition later.
+    // Forward declarations for helpers used before their
+    // full definitions later in this file.
     void ReturnToMainMenu();
+
+    bool CurrentInputIsWrong();
 
 
     bool ContainsId(
@@ -392,12 +466,14 @@ namespace
 
     void RefreshDisplayGeometry()
     {
+        // Gameplay geometry never follows the physical window.
+        // Everything remains positioned inside the 900x600 canvas.
         const int width =
-            GetScreenWidth();
+            GAME_WIDTH;
 
 
         const int height =
-            GetScreenHeight();
+            GAME_HEIGHT;
 
 
         playerX =
@@ -443,6 +519,1335 @@ namespace
     }
 
 
+
+
+    void SyncVirtualViewport()
+    {
+        menu.SetViewportSize(
+            GAME_WIDTH,
+            GAME_HEIGHT
+        );
+
+
+        memorySystem.SetViewportSize(
+            GAME_WIDTH,
+            GAME_HEIGHT
+        );
+
+
+        finalBoss.SetViewportSize(
+            GAME_WIDTH,
+            GAME_HEIGHT
+        );
+
+
+        if (storyReader)
+        {
+            storyReader->SetViewportSize(
+                GAME_WIDTH,
+                GAME_HEIGHT
+            );
+        }
+    }
+
+
+    void DrawVirtualCanvasToWindow(
+        const RenderTexture2D& target
+    )
+    {
+        const int windowWidth =
+            GetScreenWidth();
+
+
+        const int windowHeight =
+            GetScreenHeight();
+
+
+        const float scaleX =
+            static_cast<float>(
+                windowWidth
+            )
+            /
+            static_cast<float>(
+                GAME_WIDTH
+            );
+
+
+        const float scaleY =
+            static_cast<float>(
+                windowHeight
+            )
+            /
+            static_cast<float>(
+                GAME_HEIGHT
+            );
+
+
+        const float scale =
+            std::min(
+                scaleX,
+                scaleY
+            );
+
+
+        const float drawWidth =
+            static_cast<float>(
+                GAME_WIDTH
+            )
+            *
+            scale;
+
+
+        const float drawHeight =
+            static_cast<float>(
+                GAME_HEIGHT
+            )
+            *
+            scale;
+
+
+        const float offsetX =
+            (
+                static_cast<float>(
+                    windowWidth
+                )
+                -
+                drawWidth
+            )
+            /
+            2.0f;
+
+
+        const float offsetY =
+            (
+                static_cast<float>(
+                    windowHeight
+                )
+                -
+                drawHeight
+            )
+            /
+            2.0f;
+
+
+        // Anything outside the 3:2 game canvas becomes a clean
+        // letterbox/pillarbox instead of stretching the artwork.
+        ClearBackground(
+            BLACK
+        );
+
+
+        const Rectangle source =
+        {
+            0.0f,
+            0.0f,
+            static_cast<float>(
+                GAME_WIDTH
+            ),
+            -static_cast<float>(
+                GAME_HEIGHT
+            )
+        };
+
+
+        const Rectangle destination =
+        {
+            offsetX,
+            offsetY,
+            drawWidth,
+            drawHeight
+        };
+
+
+        DrawTexturePro(
+            target.texture,
+            source,
+            destination,
+            Vector2{
+                0.0f,
+                0.0f
+            },
+            0.0f,
+            WHITE
+        );
+    }
+
+
+    Vector2 LerpPoint(
+        Vector2 start,
+        Vector2 target,
+        float amount
+    )
+    {
+        return Vector2{
+            start.x
+            +
+            (
+                target.x
+                -
+                start.x
+            )
+            *
+            amount,
+
+            start.y
+            +
+            (
+                target.y
+                -
+                start.y
+            )
+            *
+            amount
+        };
+    }
+
+
+    void LaunchWordSpark(
+        const Enemy& enemy
+    )
+    {
+        const Vector2 source =
+        {
+            static_cast<float>(
+                playerX
+                +
+                (
+                    quillSystem.HasQuill()
+                    ?
+                    34
+                    :
+                    18
+                )
+            ),
+
+            static_cast<float>(
+                playerY
+                -
+                (
+                    quillSystem.HasQuill()
+                    ?
+                    18
+                    :
+                    2
+                )
+            )
+        };
+
+
+        const Vector2 target =
+        {
+            enemy.GetX(),
+            enemy.GetY()
+        };
+
+
+        wordSparkEffects.push_back(
+            WordSparkEffect{
+                source,
+                target,
+                source,
+                WordSparkPhase::Attack,
+                0.0f,
+                0,
+                GetRandomValue(
+                    0,
+                    10000
+                )
+            }
+        );
+    }
+
+
+    Vector2 GetWordSparkPosition(
+        const WordSparkEffect& spark,
+        float amount
+    )
+    {
+        const float t =
+            std::clamp(
+                amount,
+                0.0f,
+                1.0f
+            );
+
+
+        const float eased =
+            t
+            *
+            t
+            *
+            (
+                3.0f
+                -
+                2.0f
+                *
+                t
+            );
+
+
+        if (
+            spark.phase
+            ==
+            WordSparkPhase::Attack
+        )
+        {
+            return LerpPoint(
+                spark.start,
+                spark.target,
+                eased
+            );
+        }
+
+
+        // Returning words take a magical curved route instead of
+        // flying straight at the player like a projectile.
+        const Vector2 midpoint =
+        {
+            (
+                spark.start.x
+                +
+                spark.target.x
+            )
+            *
+            0.5f,
+
+            (
+                spark.start.y
+                +
+                spark.target.y
+            )
+            *
+            0.5f
+            -
+            72.0f
+        };
+
+
+        const float inverse =
+            1.0f
+            -
+            eased;
+
+
+        Vector2 position =
+        {
+            inverse
+            *
+            inverse
+            *
+            spark.start.x
+            +
+            2.0f
+            *
+            inverse
+            *
+            eased
+            *
+            midpoint.x
+            +
+            eased
+            *
+            eased
+            *
+            spark.target.x,
+
+            inverse
+            *
+            inverse
+            *
+            spark.start.y
+            +
+            2.0f
+            *
+            inverse
+            *
+            eased
+            *
+            midpoint.y
+            +
+            eased
+            *
+            eased
+            *
+            spark.target.y
+        };
+
+
+        // One shrinking flourish makes the effect read as a word
+        // spiraling home rather than an enemy firing an arrow.
+        const float flourishRadius =
+            42.0f
+            *
+            std::sin(
+                PI
+                *
+                eased
+            )
+            *
+            (
+                1.0f
+                -
+                eased
+                *
+                0.45f
+            );
+
+
+        const float flourishAngle =
+            eased
+            *
+            PI
+            *
+            2.35f
+            +
+            static_cast<float>(
+                spark.seed % 11
+            )
+            *
+            0.19f;
+
+
+        position.x +=
+            std::cos(
+                flourishAngle
+            )
+            *
+            flourishRadius;
+
+
+        position.y +=
+            std::sin(
+                flourishAngle
+            )
+            *
+            flourishRadius
+            *
+            0.62f;
+
+
+        return position;
+    }
+
+
+    void UpdateWordSparks()
+    {
+        for (
+            WordSparkEffect& spark
+            :
+            wordSparkEffects
+        )
+        {
+            spark.age++;
+
+
+            const float speed =
+                spark.phase
+                ==
+                WordSparkPhase::Attack
+                ?
+                0.095f
+                :
+                0.043f;
+
+
+            spark.progress =
+                std::min(
+                    1.0f,
+                    spark.progress
+                    +
+                    speed
+                );
+
+
+            spark.position =
+                GetWordSparkPosition(
+                    spark,
+                    spark.progress
+                );
+
+
+            if (spark.progress < 1.0f)
+            {
+                continue;
+            }
+
+
+            if (
+                spark.phase
+                ==
+                WordSparkPhase::Attack
+            )
+            {
+                // Every completed word is permanently recovered,
+                // even when the creature still has more words.
+                // Send that recovered fragment back immediately.
+                spark.phase =
+                    WordSparkPhase::Return;
+
+
+                spark.start =
+                    spark.target;
+
+
+                spark.target =
+                    Vector2{
+                        static_cast<float>(
+                            playerX + 3
+                        ),
+                        static_cast<float>(
+                            playerY + 12
+                        )
+                    };
+
+
+                spark.position =
+                    spark.start;
+
+
+                spark.progress =
+                    0.0f;
+
+
+                spark.age =
+                    0;
+            }
+
+            else
+            {
+                // The permanent restoration already happened when
+                // the word was saved. This pulse makes its arrival
+                // visibly affect the parchment.
+                pageRestorePulse =
+                    18;
+            }
+        }
+
+
+        wordSparkEffects.erase(
+            std::remove_if(
+                wordSparkEffects.begin(),
+                wordSparkEffects.end(),
+                [](
+                    const WordSparkEffect& spark
+                )
+                {
+                    return
+                        spark.phase
+                        ==
+                        WordSparkPhase::Return
+                        &&
+                        spark.progress
+                        >=
+                        1.0f;
+                }
+            ),
+            wordSparkEffects.end()
+        );
+    }
+
+
+    void DrawWordSparks()
+    {
+        for (
+            const WordSparkEffect& spark
+            :
+            wordSparkEffects
+        )
+        {
+            const Color core =
+                spark.phase
+                ==
+                WordSparkPhase::Attack
+                ?
+                Color{
+                    255,
+                    235,
+                    125,
+                    255
+                }
+                :
+                Color{
+                    238,
+                    210,
+                    145,
+                    255
+                };
+
+
+            const Color trail =
+                spark.phase
+                ==
+                WordSparkPhase::Attack
+                ?
+                Color{
+                    255,
+                    210,
+                    75,
+                    145
+                }
+                :
+                Color{
+                    210,
+                    180,
+                    115,
+                    125
+                };
+
+
+            const Vector2 previous =
+                GetWordSparkPosition(
+                    spark,
+                    std::max(
+                        0.0f,
+                        spark.progress
+                        -
+                        (
+                            spark.phase
+                            ==
+                            WordSparkPhase::Return
+                            ?
+                            0.035f
+                            :
+                            0.09f
+                        )
+                    )
+                );
+
+
+            DrawLineEx(
+                previous,
+                spark.position,
+                spark.phase
+                ==
+                WordSparkPhase::Return
+                ?
+                3.5f
+                :
+                2.0f,
+                trail
+            );
+
+
+            if (
+                spark.phase
+                ==
+                WordSparkPhase::Return
+            )
+            {
+                const float sparkleSize =
+                    5.0f
+                    +
+                    2.0f
+                    *
+                    std::sin(
+                        static_cast<float>(
+                            spark.age
+                        )
+                        *
+                        0.55f
+                    );
+
+
+                DrawLineEx(
+                    Vector2{
+                        spark.position.x
+                        -
+                        sparkleSize,
+                        spark.position.y
+                    },
+                    Vector2{
+                        spark.position.x
+                        +
+                        sparkleSize,
+                        spark.position.y
+                    },
+                    2.0f,
+                    Color{
+                        255,
+                        239,
+                        170,
+                        220
+                    }
+                );
+
+
+                DrawLineEx(
+                    Vector2{
+                        spark.position.x,
+                        spark.position.y
+                        -
+                        sparkleSize
+                    },
+                    Vector2{
+                        spark.position.x,
+                        spark.position.y
+                        +
+                        sparkleSize
+                    },
+                    2.0f,
+                    Color{
+                        255,
+                        239,
+                        170,
+                        220
+                    }
+                );
+            }
+
+
+            DrawCircleV(
+                spark.position,
+                4.0f,
+                core
+            );
+
+
+            DrawCircleV(
+                spark.position,
+                7.0f,
+                Color{
+                    core.r,
+                    core.g,
+                    core.b,
+                    55
+                }
+            );
+
+
+            // Three tiny orbiting flecks create a sparkle without
+            // requiring another sprite or particle-system file.
+            const int fleckCount =
+                spark.phase
+                ==
+                WordSparkPhase::Return
+                ?
+                6
+                :
+                3;
+
+
+            for (
+                int index = 0;
+                index < fleckCount;
+                index++
+            )
+            {
+                const float angle =
+                    static_cast<float>(
+                        spark.age
+                    )
+                    *
+                    0.35f
+                    +
+                    static_cast<float>(
+                        index
+                    )
+                    *
+                    2.094f
+                    +
+                    static_cast<float>(
+                        spark.seed % 17
+                    );
+
+
+                const float radius =
+                    6.0f
+                    +
+                    static_cast<float>(
+                        index
+                    );
+
+
+                DrawCircle(
+                    static_cast<int>(
+                        spark.position.x
+                        +
+                        std::cos(
+                            angle
+                        )
+                        *
+                        radius
+                    ),
+                    static_cast<int>(
+                        spark.position.y
+                        +
+                        std::sin(
+                            angle
+                        )
+                        *
+                        radius
+                    ),
+                    1.5f,
+                    core
+                );
+            }
+        }
+    }
+
+
+    unsigned char SplashAlpha(
+        float value
+    )
+    {
+        return static_cast<unsigned char>(
+            std::clamp(
+                value,
+                0.0f,
+                255.0f
+            )
+        );
+    }
+
+
+    void DrawStudioLightning(
+        float reveal,
+        unsigned char alpha
+    )
+    {
+        const Vector2 points[] =
+        {
+            // The bolt begins just beneath "Presents" and
+            // travels downward so it never covers the studio name.
+            { 450.0f, 372.0f },
+            { 438.0f, 405.0f },
+            { 456.0f, 405.0f },
+            { 434.0f, 448.0f },
+            { 449.0f, 448.0f },
+            { 428.0f, 500.0f },
+            { 462.0f, 456.0f },
+            { 446.0f, 456.0f },
+            { 470.0f, 413.0f },
+            { 453.0f, 413.0f },
+            { 475.0f, 372.0f }
+        };
+
+
+        constexpr int pointCount =
+            sizeof(points)
+            /
+            sizeof(points[0]);
+
+
+        const float segmentProgress =
+            std::clamp(
+                reveal,
+                0.0f,
+                1.0f
+            )
+            *
+            static_cast<float>(
+                pointCount - 1
+            );
+
+
+        for (
+            int index = 0;
+            index < pointCount - 1;
+            index++
+        )
+        {
+            const float local =
+                std::clamp(
+                    segmentProgress
+                    -
+                    static_cast<float>(
+                        index
+                    ),
+                    0.0f,
+                    1.0f
+                );
+
+
+            if (local <= 0.0f)
+            {
+                break;
+            }
+
+
+            const Vector2 end =
+            {
+                points[index].x
+                +
+                (
+                    points[index + 1].x
+                    -
+                    points[index].x
+                )
+                *
+                local,
+
+                points[index].y
+                +
+                (
+                    points[index + 1].y
+                    -
+                    points[index].y
+                )
+                *
+                local
+            };
+
+
+            DrawLineEx(
+                points[index],
+                end,
+                10.0f,
+                Color{
+                    42,
+                    5,
+                    65,
+                    SplashAlpha(
+                        alpha * 0.55f
+                    )
+                }
+            );
+
+
+            DrawLineEx(
+                points[index],
+                end,
+                5.0f,
+                Color{
+                    132,
+                    42,
+                    185,
+                    alpha
+                }
+            );
+
+
+            DrawLineEx(
+                points[index],
+                end,
+                2.0f,
+                Color{
+                    242,
+                    205,
+                    255,
+                    alpha
+                }
+            );
+        }
+
+
+        // Small red accents give the studio mark its
+        // red-and-purple identity without another asset.
+
+        // Top cap closes the opening of the studio bolt.
+        DrawLineEx(
+            Vector2{
+                450.0f,
+                372.0f
+            },
+            Vector2{
+                475.0f,
+                372.0f
+            },
+            3.0f,
+            Color{
+                190,
+                52,
+                86,
+                SplashAlpha(
+                    alpha * reveal
+                )
+            }
+        );
+
+
+        DrawLineEx(
+            Vector2{
+                440.0f,
+                405.0f
+            },
+            Vector2{
+                456.0f,
+                405.0f
+            },
+            3.0f,
+            Color{
+                190,
+                52,
+                86,
+                SplashAlpha(
+                    alpha * reveal
+                )
+            }
+        );
+
+
+        DrawLineEx(
+            Vector2{
+                436.0f,
+                448.0f
+            },
+            Vector2{
+                452.0f,
+                448.0f
+            },
+            3.0f,
+            Color{
+                190,
+                52,
+                86,
+                SplashAlpha(
+                    alpha * reveal
+                )
+            }
+        );
+    }
+
+
+    void DrawSplash()
+    {
+        const std::string studioName =
+            "Bearly Bipolar";
+
+
+        if (splashFrame >= SPLASH_MENU_FADE_START)
+        {
+            menu.Draw();
+
+
+            const float fadeProgress =
+                std::clamp(
+                    static_cast<float>(
+                        splashFrame
+                        -
+                        SPLASH_MENU_FADE_START
+                    )
+                    /
+                    static_cast<float>(
+                        SPLASH_END
+                        -
+                        SPLASH_MENU_FADE_START
+                    ),
+                    0.0f,
+                    1.0f
+                );
+
+
+            DrawRectangle(
+                0,
+                0,
+                GAME_WIDTH,
+                GAME_HEIGHT,
+                Color{
+                    5,
+                    2,
+                    8,
+                    SplashAlpha(
+                        255.0f
+                        *
+                        (
+                            1.0f
+                            -
+                            fadeProgress
+                        )
+                    )
+                }
+            );
+
+
+            const float lightningFade =
+                1.0f
+                -
+                fadeProgress;
+
+
+            DrawStudioLightning(
+                1.0f,
+                SplashAlpha(
+                    255.0f
+                    *
+                    lightningFade
+                )
+            );
+
+
+            return;
+        }
+
+
+        ClearBackground(
+            Color{
+                5,
+                2,
+                8,
+                255
+            }
+        );
+
+
+        const int typedCount =
+            std::clamp(
+                (
+                    splashFrame
+                    -
+                    SPLASH_TYPE_START
+                )
+                /
+                SPLASH_FRAMES_PER_LETTER,
+                0,
+                static_cast<int>(
+                    studioName.size()
+                )
+            );
+
+
+        const std::string typed =
+            studioName.substr(
+                0,
+                typedCount
+            );
+
+
+        const int titleFontSize = 48;
+        const int titleY = 205;
+
+
+        const int fullTitleWidth =
+            MeasureGameText(
+                studioName,
+                titleFontSize
+            );
+
+
+        const int titleX =
+            GAME_WIDTH / 2
+            -
+            fullTitleWidth / 2;
+
+
+        DrawGameText(
+            typed,
+            titleX,
+            titleY,
+            titleFontSize,
+            Color{
+                174,
+                68,
+                190,
+                255
+            }
+        );
+
+
+        if (
+            typedCount
+            <
+            static_cast<int>(
+                studioName.size()
+            )
+            &&
+            splashFrame
+            >=
+            SPLASH_TYPE_START
+            &&
+            (
+                splashFrame / 18
+            )
+            %
+            2
+            ==
+            0
+        )
+        {
+            const int cursorX =
+                titleX
+                +
+                MeasureGameText(
+                    typed,
+                    titleFontSize
+                );
+
+
+            DrawRectangle(
+                cursorX + 3,
+                titleY + 5,
+                3,
+                titleFontSize - 8,
+                Color{
+                    220,
+                    105,
+                    145,
+                    230
+                }
+            );
+        }
+
+
+        if (splashFrame >= SPLASH_GAMING_START)
+        {
+            const float slideProgress =
+                std::clamp(
+                    static_cast<float>(
+                        splashFrame
+                        -
+                        SPLASH_GAMING_START
+                    )
+                    /
+                    24.0f,
+                    0.0f,
+                    1.0f
+                );
+
+
+            const float eased =
+                1.0f
+                -
+                std::pow(
+                    1.0f
+                    -
+                    slideProgress,
+                    3.0f
+                );
+
+
+            const char* gaming =
+                "Gaming";
+
+
+            const int gamingFontSize = 37;
+
+
+            const int gamingX =
+                GAME_WIDTH / 2
+                -
+                MeasureGameText(
+                    gaming,
+                    gamingFontSize
+                )
+                /
+                2;
+
+
+            const int gamingY =
+                static_cast<int>(
+                    325.0f
+                    -
+                    62.0f
+                    *
+                    eased
+                );
+
+
+            DrawGameText(
+                gaming,
+                gamingX,
+                gamingY,
+                gamingFontSize,
+                Color{
+                    205,
+                    63,
+                    92,
+                    SplashAlpha(
+                        255.0f
+                        *
+                        slideProgress
+                    )
+                }
+            );
+        }
+
+
+        if (splashFrame >= SPLASH_PRESENTS_START)
+        {
+            const float presentsProgress =
+                std::clamp(
+                    static_cast<float>(
+                        splashFrame
+                        -
+                        SPLASH_PRESENTS_START
+                    )
+                    /
+                    28.0f,
+                    0.0f,
+                    1.0f
+                );
+
+
+            const char* presents =
+                "Presents";
+
+
+            const int presentsFontSize = 24;
+
+
+            DrawGameText(
+                presents,
+                GAME_WIDTH / 2
+                -
+                MeasureGameText(
+                    presents,
+                    presentsFontSize
+                )
+                /
+                2,
+                335,
+                presentsFontSize,
+                Color{
+                    220,
+                    205,
+                    220,
+                    SplashAlpha(
+                        255.0f
+                        *
+                        presentsProgress
+                    )
+                }
+            );
+        }
+
+
+        if (splashFrame >= SPLASH_LIGHTNING_START)
+        {
+            const float reveal =
+                std::clamp(
+                    static_cast<float>(
+                        splashFrame
+                        -
+                        SPLASH_LIGHTNING_START
+                    )
+                    /
+                    22.0f,
+                    0.0f,
+                    1.0f
+                );
+
+
+            DrawStudioLightning(
+                reveal,
+                255
+            );
+        }
+    }
+
+
+    void UpdateSplash()
+    {
+        splashFrame++;
+
+
+        if (
+            IsKeyPressed(KEY_ENTER)
+            ||
+            IsKeyPressed(KEY_SPACE)
+            ||
+            IsKeyPressed(KEY_ESCAPE)
+            ||
+            splashFrame >= SPLASH_END
+        )
+        {
+            splashFrame =
+                SPLASH_END;
+
+
+            currentState =
+                GameState::Menu;
+        }
+    }
 
 
     void SaveProgress()
@@ -1412,7 +2817,7 @@ namespace
             enemyType,
             laneIndex,
             static_cast<float>(
-                GetScreenWidth()
+                GAME_WIDTH
                 +
                 70
             ),
@@ -1554,6 +2959,12 @@ namespace
 
         reservedWordIds.clear();
 
+        wordSparkEffects.clear();
+
+        pageRestorePulse = 0;
+
+        wrongInputFrame = 0;
+
         combat.ClearInput();
 
         waveClearTimer = 0;
@@ -1693,12 +3104,8 @@ namespace
             )
         )
         {
-            chapterRestoredNumber =
+            pendingChapterUnlock =
                 chapterBeforeRecovery;
-
-
-            chapterRestoredTimer =
-                180;
         }
 
 
@@ -2315,7 +3722,7 @@ namespace
 
             DrawGameText(
                 line,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 MeasureGameText(
                     line,
@@ -2343,7 +3750,7 @@ namespace
 
             DrawGameText(
                 line,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 MeasureGameText(
                     line,
@@ -2367,7 +3774,7 @@ namespace
         {
             DrawGameText(
                 "THE STAINED AUTHOR",
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 MeasureGameText(
                     "THE STAINED AUTHOR",
@@ -2411,7 +3818,7 @@ namespace
 
                 DrawGameText(
                     line,
-                    GetScreenWidth() / 2
+                    GAME_WIDTH / 2
                     -
                     MeasureGameText(
                         line,
@@ -2465,7 +3872,7 @@ namespace
 
         DrawGameText(
             prompt,
-            GetScreenWidth() / 2
+            GAME_WIDTH / 2
             -
             MeasureGameText(
                 prompt,
@@ -2473,7 +3880,7 @@ namespace
             )
             /
             2,
-            GetScreenHeight() - 55,
+            GAME_HEIGHT - 55,
             20,
             Color{
                 150,
@@ -2671,8 +4078,8 @@ namespace
             DrawRectangle(
                 0,
                 0,
-                GetScreenWidth(),
-                GetScreenHeight(),
+                GAME_WIDTH,
+                GAME_HEIGHT,
                 Color{
                     0,
                     0,
@@ -2688,7 +4095,7 @@ namespace
 
             DrawGameText(
                 title,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 MeasureGameText(
                     title,
@@ -2742,7 +4149,7 @@ namespace
 
                 DrawGameText(
                     options[index],
-                    GetScreenWidth() / 2
+                    GAME_WIDTH / 2
                     -
                     MeasureGameText(
                         options[index],
@@ -2872,7 +4279,7 @@ namespace
 
 
         const int startX =
-            GetScreenWidth() / 2
+            GAME_WIDTH / 2
             -
             totalWidth / 2;
 
@@ -2881,7 +4288,7 @@ namespace
         DrawGameText(
             completed,
             startX,
-            GetScreenHeight() - 83,
+            GAME_HEIGHT - 83,
             fontSize,
             Color{
                 255,
@@ -2902,7 +4309,7 @@ namespace
                 completed,
                 fontSize
             ),
-            GetScreenHeight() - 83,
+            GAME_HEIGHT - 83,
             fontSize,
             Color{
                 220,
@@ -3017,7 +4424,7 @@ namespace
 
         DrawGameText(
             "THE END",
-            GetScreenWidth() / 2
+            GAME_WIDTH / 2
             -
             MeasureGameText(
                 "THE END",
@@ -3046,7 +4453,7 @@ namespace
         {
             DrawGameText(
                 lines[index],
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 MeasureGameText(
                     lines[index],
@@ -3072,7 +4479,7 @@ namespace
             "ENTER - Remember"
             :
             "ENTER - Continue",
-            GetScreenWidth() / 2
+            GAME_WIDTH / 2
             -
             MeasureGameText(
                 endingStep >= 5
@@ -3084,7 +4491,7 @@ namespace
             )
             /
             2,
-            GetScreenHeight() - 48,
+            GAME_HEIGHT - 48,
             19,
             Color{
                 155,
@@ -3115,11 +4522,14 @@ namespace
         );
 
 
-        chapterRestoredTimer =
-            0;
-
-        chapterRestoredNumber =
+        pendingChapterUnlock =
             -1;
+
+        chapterUnlockNumber =
+            -1;
+
+        wrongInputFrame =
+            0;
 
 
         playerHealth =
@@ -3207,6 +4617,16 @@ namespace
 
         enemies.clear();
 
+        wordSparkEffects.clear();
+
+        pageRestorePulse = 0;
+
+        pendingChapterUnlock = -1;
+
+        chapterUnlockNumber = -1;
+
+        wrongInputFrame = 0;
+
         ResetWaveQueueState();
 
         combat.ClearInput();
@@ -3241,9 +4661,23 @@ namespace
         );
 
 
-        if (chapterRestoredTimer > 0)
+        UpdateWordSparks();
+
+
+        if (pageRestorePulse > 0)
         {
-            chapterRestoredTimer--;
+            pageRestorePulse--;
+        }
+
+
+        if (CurrentInputIsWrong())
+        {
+            wrongInputFrame++;
+        }
+
+        else
+        {
+            wrongInputFrame = 0;
         }
 
 
@@ -3357,6 +4791,35 @@ namespace
 
             if (waveClearTimer <= 0)
             {
+                if (pendingChapterUnlock > 0)
+                {
+                    chapterUnlockNumber =
+                        pendingChapterUnlock;
+
+
+                    pendingChapterUnlock =
+                        -1;
+
+
+                    chapterUnlockPhase =
+                        ChapterUnlockPhase::Closing;
+
+
+                    chapterUnlockFrame =
+                        0;
+
+
+                    combat.ClearInput();
+
+
+                    currentState =
+                        GameState::ChapterUnlock;
+
+
+                    return;
+                }
+
+
                 int memoryIndex =
                     memorySystem.GetNextMemoryIndex(
                         saveData.wordsRecovered,
@@ -3445,6 +4908,11 @@ namespace
             );
 
 
+        LaunchWordSpark(
+            *enemy
+        );
+
+
         if (currentWordId >= 0)
         {
             RecoverWord(
@@ -3517,6 +4985,660 @@ namespace
     }
 
 
+    float EnemySpriteDrawSize(
+        EnemyType type
+    )
+    {
+        switch (type)
+        {
+            case EnemyType::Goblin:
+                return 54.0f;
+
+            case EnemyType::Orc:
+                return 68.0f;
+
+            case EnemyType::Wolf:
+            case EnemyType::Beast:
+                return 64.0f;
+
+            case EnemyType::Bat:
+                return 60.0f;
+
+            case EnemyType::Dragon:
+                return 78.0f;
+
+            default:
+                return 62.0f;
+        }
+    }
+
+
+    void DrawOutlinedStar(
+        float centerX,
+        float centerY
+    )
+    {
+        constexpr float PI_VALUE =
+            3.14159265358979323846f;
+
+
+        auto drawStar =
+            [centerX, centerY, PI_VALUE](
+                float radius,
+                Color color
+            )
+            {
+                Vector2 points[10];
+
+
+                for (
+                    int index = 0;
+                    index < 10;
+                    index++
+                )
+                {
+                    const float angle =
+                        -PI_VALUE / 2.0f
+                        +
+                        index * PI_VALUE / 5.0f;
+
+
+                    const float pointRadius =
+                        index % 2 == 0
+                        ?
+                        radius
+                        :
+                        radius * 0.45f;
+
+
+                    points[index] =
+                    {
+                        centerX
+                        +
+                        std::cos(angle)
+                        *
+                        pointRadius,
+
+                        centerY
+                        +
+                        std::sin(angle)
+                        *
+                        pointRadius
+                    };
+                }
+
+
+                DrawTriangleFan(
+                    points,
+                    10,
+                    color
+                );
+            };
+
+
+        drawStar(
+            8.0f,
+            Color{
+                35,
+                32,
+                30,
+                235
+            }
+        );
+
+
+        drawStar(
+            6.0f,
+            Color{
+                245,
+                215,
+                70,
+                255
+            }
+        );
+    }
+
+
+    bool CurrentInputIsWrong()
+    {
+        const std::string typed =
+            NormalizeTypingText(
+                combat.GetInput()
+            );
+
+
+        if (typed.empty())
+        {
+            return false;
+        }
+
+
+        if (
+            !quillSystem
+                .GetMatchingCommand(
+                    combat.GetInput()
+                )
+                .empty()
+        )
+        {
+            return false;
+        }
+
+
+        for (
+            const Enemy& enemy
+            :
+            enemies
+        )
+        {
+            if (
+                enemy.IsDefeated()
+                ||
+                enemy.HasEscaped()
+            )
+            {
+                continue;
+            }
+
+
+            const std::string target =
+                NormalizeTypingText(
+                    enemy.GetWordDisplay()
+                );
+
+
+            if (
+                !target.empty()
+                &&
+                typed.size() <= target.size()
+                &&
+                target.compare(
+                    0,
+                    typed.size(),
+                    typed
+                )
+                ==
+                0
+            )
+            {
+                return false;
+            }
+        }
+
+
+        return true;
+    }
+
+
+    void DrawChapterUnlockCover()
+    {
+        DrawRectangle(
+            0,
+            0,
+            GAME_WIDTH,
+            GAME_HEIGHT,
+            Color{
+                20,
+                12,
+                18,
+                245
+            }
+        );
+
+
+        const Rectangle shadow =
+        {
+            48.0f,
+            34.0f,
+            520.0f,
+            530.0f
+        };
+
+
+        DrawRectangleRounded(
+            shadow,
+            0.018f,
+            8,
+            Color{
+                0,
+                0,
+                0,
+                150
+            }
+        );
+
+
+        const Rectangle cover =
+        {
+            31.0f,
+            25.0f,
+            520.0f,
+            530.0f
+        };
+
+
+        DrawRectangleRounded(
+            cover,
+            0.018f,
+            8,
+            Color{
+                72,
+                31,
+                82,
+                255
+            }
+        );
+
+
+        DrawRectangle(
+            31,
+            25,
+            22,
+            530,
+            Color{
+                55,
+                23,
+                67,
+                255
+            }
+        );
+
+
+        DrawRectangleRoundedLines(
+            Rectangle{
+                57.0f,
+                47.0f,
+                468.0f,
+                482.0f
+            },
+            0.018f,
+            8,
+            Color{
+                190,
+                154,
+                49,
+                255
+            }
+        );
+
+
+        DrawRectangleRoundedLines(
+            Rectangle{
+                66.0f,
+                56.0f,
+                450.0f,
+                464.0f
+            },
+            0.018f,
+            8,
+            Color{
+                190,
+                154,
+                49,
+                210
+            }
+        );
+
+
+        auto centered =
+            [](
+                const std::string& text,
+                int y,
+                int fontSize,
+                Color color
+            )
+            {
+                DrawGameText(
+                    text,
+                    291
+                    -
+                    MeasureGameText(
+                        text,
+                        fontSize
+                    )
+                    /
+                    2,
+                    y,
+                    fontSize,
+                    color
+                );
+            };
+
+
+        const Color gold =
+        {
+            225,
+            199,
+            100,
+            255
+        };
+
+
+        centered(
+            "Fantasy Library",
+            78,
+            46,
+            gold
+        );
+
+
+        centered(
+            "Quest of the Word Seeker",
+            150,
+            27,
+            gold
+        );
+
+
+        centered(
+            "Bearly: A Sticky Adventure",
+            205,
+            24,
+            gold
+        );
+
+
+        centered(
+            "NEW CHAPTER UNLOCKED",
+            292,
+            31,
+            Color{
+                255,
+                222,
+                105,
+                255
+            }
+        );
+
+
+        centered(
+            "You can read the new chapter",
+            354,
+            21,
+            Color{
+                235,
+                220,
+                180,
+                255
+            }
+        );
+
+
+        centered(
+            "from the Main Menu.",
+            382,
+            21,
+            Color{
+                235,
+                220,
+                180,
+                255
+            }
+        );
+
+
+        centered(
+            "ENTER - Continue",
+            472,
+            20,
+            gold
+        );
+    }
+
+
+    void DrawBookClosingTransition()
+    {
+        if (
+            chapterUnlockPhase
+            ==
+            ChapterUnlockPhase::Showing
+        )
+        {
+            DrawChapterUnlockCover();
+
+            return;
+        }
+
+
+        const int duration =
+            chapterUnlockPhase
+            ==
+            ChapterUnlockPhase::Closing
+            ?
+            CHAPTER_CLOSE_FRAMES
+            :
+            CHAPTER_OPEN_FRAMES;
+
+
+        float progress =
+            std::clamp(
+                static_cast<float>(
+                    chapterUnlockFrame
+                )
+                /
+                static_cast<float>(
+                    duration
+                ),
+                0.0f,
+                1.0f
+            );
+
+
+        if (
+            chapterUnlockPhase
+            ==
+            ChapterUnlockPhase::Opening
+        )
+        {
+            progress =
+                1.0f
+                -
+                progress;
+        }
+
+
+        // Reveal the purple cover beneath the closing left page.
+        const float coverReveal =
+            std::clamp(
+                (
+                    progress
+                    -
+                    0.25f
+                )
+                /
+                0.75f,
+                0.0f,
+                1.0f
+            );
+
+
+        if (coverReveal > 0.0f)
+        {
+            DrawChapterUnlockCover();
+
+
+            DrawRectangle(
+                0,
+                0,
+                static_cast<int>(
+                    GAME_WIDTH
+                    *
+                    (
+                        1.0f
+                        -
+                        coverReveal
+                    )
+                ),
+                GAME_HEIGHT,
+                Color{
+                    0,
+                    0,
+                    0,
+                    static_cast<unsigned char>(
+                        190
+                        *
+                        (
+                            1.0f
+                            -
+                            coverReveal
+                        )
+                    )
+                }
+            );
+        }
+
+
+        const float foldX =
+            GAME_WIDTH
+            *
+            0.5f
+            *
+            (
+                1.0f
+                +
+                progress
+            );
+
+
+        const float leftEdge =
+            GAME_WIDTH
+            *
+            progress;
+
+
+        DrawTriangle(
+            Vector2{
+                leftEdge,
+                0.0f
+            },
+            Vector2{
+                foldX,
+                static_cast<float>(
+                    GAME_HEIGHT
+                )
+            },
+            Vector2{
+                foldX,
+                0.0f
+            },
+            Color{
+                205,
+                179,
+                122,
+                255
+            }
+        );
+
+
+        DrawTriangle(
+            Vector2{
+                leftEdge,
+                0.0f
+            },
+            Vector2{
+                leftEdge,
+                static_cast<float>(
+                    GAME_HEIGHT
+                )
+            },
+            Vector2{
+                foldX,
+                static_cast<float>(
+                    GAME_HEIGHT
+                )
+            },
+            Color{
+                177,
+                145,
+                96,
+                255
+            }
+        );
+
+
+        DrawLineEx(
+            Vector2{
+                foldX,
+                0.0f
+            },
+            Vector2{
+                foldX,
+                static_cast<float>(
+                    GAME_HEIGHT
+                )
+            },
+            4.0f,
+            Color{
+                245,
+                220,
+                166,
+                220
+            }
+        );
+    }
+
+
+    void UpdateChapterUnlock()
+    {
+        if (
+            chapterUnlockPhase
+            ==
+            ChapterUnlockPhase::Showing
+        )
+        {
+            return;
+        }
+
+
+        chapterUnlockFrame++;
+
+
+        const int duration =
+            chapterUnlockPhase
+            ==
+            ChapterUnlockPhase::Closing
+            ?
+            CHAPTER_CLOSE_FRAMES
+            :
+            CHAPTER_OPEN_FRAMES;
+
+
+        if (chapterUnlockFrame < duration)
+        {
+            return;
+        }
+
+
+        chapterUnlockFrame = 0;
+
+
+        if (
+            chapterUnlockPhase
+            ==
+            ChapterUnlockPhase::Closing
+        )
+        {
+            chapterUnlockPhase =
+                ChapterUnlockPhase::Showing;
+        }
+
+        else
+        {
+            chapterUnlockNumber =
+                -1;
+
+
+            waveNumber++;
+
+            StartWave();
+
+
+            currentState =
+                GameState::Adventure;
+        }
+    }
+
+
     void DrawEnemyTypingHighlight(
         const Enemy& enemy
     )
@@ -3531,76 +5653,14 @@ namespace
         }
 
 
-        const std::string displayedWord =
+        std::string fullUpper =
             enemy.GetWordDisplay();
 
 
-        if (displayedWord.empty())
+        if (fullUpper.empty())
         {
             return;
         }
-
-
-        const std::string typed =
-            NormalizeTypingText(
-                combat.GetInput()
-            );
-
-
-        // A ready Quill command gets visual priority over an
-        // enemy word that happens to share the same prefix.
-        if (
-            !quillSystem
-                .GetMatchingCommand(
-                    combat.GetInput()
-                )
-                .empty()
-        )
-        {
-            return;
-        }
-
-
-        if (typed.empty())
-        {
-            return;
-        }
-
-
-        const std::string target =
-            NormalizeTypingText(
-                displayedWord
-            );
-
-
-        if (
-            typed.size()
-            >
-            target.size()
-        )
-        {
-            return;
-        }
-
-
-        if (
-            target.compare(
-                0,
-                typed.size(),
-                typed
-            )
-            !=
-            0
-        )
-        {
-            return;
-        }
-
-
-        // Convert the visible portion to uppercase while
-        // preserving apostrophes in the displayed target.
-        std::string fullUpper =
-            displayedWord;
 
 
         for (
@@ -3627,42 +5687,336 @@ namespace
         }
 
 
-        std::size_t visibleCharacters =
+        constexpr int fontSize = 27;
+        constexpr int paddingX = 12;
+        constexpr int paddingY = 7;
+
+
+        const bool wrongInput =
+            CurrentInputIsWrong();
+
+
+        const int shake =
+            wrongInput
+            ?
+            (
+                (
+                    wrongInputFrame / 2
+                )
+                %
+                2
+                ==
+                0
+                ?
+                -4
+                :
+                4
+            )
+            :
             0;
 
 
-        std::size_t endIndex =
-            0;
+        const int fullWidth =
+            MeasureGameText(
+                fullUpper,
+                fontSize
+            );
+
+
+        const float labelOffset =
+            enemy.GetEnemyType()
+            ==
+            EnemyType::Dragon
+            ?
+            76.0f
+            :
+            64.0f;
+
+
+        const int textX =
+            static_cast<int>(
+                enemy.GetX()
+            )
+            -
+            fullWidth / 2
+            +
+            shake;
+
+
+        const int textY =
+            static_cast<int>(
+                enemy.GetY()
+                -
+                labelOffset
+            );
+
+
+        const Rectangle bubble =
+        {
+            static_cast<float>(
+                textX
+                -
+                paddingX
+            ),
+            static_cast<float>(
+                textY
+                -
+                paddingY
+            ),
+            static_cast<float>(
+                fullWidth
+                +
+                paddingX * 2
+            ),
+            static_cast<float>(
+                fontSize
+                +
+                paddingY * 2
+            )
+        };
+
+
+        // Tiny shadow.
+        DrawRectangleRounded(
+            Rectangle{
+                bubble.x + 3.0f,
+                bubble.y + 3.0f,
+                bubble.width,
+                bubble.height
+            },
+            0.22f,
+            8,
+            Color{
+                0,
+                0,
+                0,
+                115
+            }
+        );
+
+
+        // Hanging bookmark/speech line tying the word to its creature.
+        const Vector2 lineStart =
+        {
+            bubble.x
+            +
+            bubble.width
+            *
+            0.68f,
+            bubble.y
+            +
+            bubble.height
+        };
+
+
+        const Vector2 lineEnd =
+        {
+            enemy.GetX()
+            -
+            EnemySpriteDrawSize(
+                enemy.GetEnemyType()
+            )
+            *
+            0.18f,
+            enemy.GetY()
+            -
+            EnemySpriteDrawSize(
+                enemy.GetEnemyType()
+            )
+            *
+            0.30f
+        };
+
+
+        DrawLineEx(
+            Vector2{
+                lineStart.x + 2.0f,
+                lineStart.y + 2.0f
+            },
+            Vector2{
+                lineEnd.x + 2.0f,
+                lineEnd.y + 2.0f
+            },
+            3.0f,
+            Color{
+                0,
+                0,
+                0,
+                95
+            }
+        );
+
+
+        DrawLineEx(
+            lineStart,
+            lineEnd,
+            2.0f,
+            Color{
+                111,
+                85,
+                54,
+                230
+            }
+        );
+
+
+        DrawRectangleRounded(
+            bubble,
+            0.22f,
+            8,
+            Color{
+                18,
+                18,
+                22,
+                218
+            }
+        );
+
+
+        DrawRectangleRoundedLines(
+            bubble,
+            0.22f,
+            8,
+            Color{
+                111,
+                85,
+                54,
+                255
+            }
+        );
+
+
+        const int stars =
+            enemy.GetStarCount();
+
+
+        if (stars > 0)
+        {
+            const float starX =
+                bubble.x
+                +
+                bubble.width
+                +
+                13.0f;
+
+
+            const float firstStarY =
+                bubble.y
+                +
+                bubble.height / 2.0f
+                -
+                (
+                    stars - 1
+                )
+                *
+                9.0f;
+
+
+            for (
+                int index = 0;
+                index < stars;
+                index++
+            )
+            {
+                DrawOutlinedStar(
+                    starX,
+                    firstStarY
+                    +
+                    index * 18.0f
+                );
+            }
+        }
+
+
+        DrawGameText(
+            fullUpper,
+            textX,
+            textY,
+            fontSize,
+            wrongInput
+            ?
+            Color{
+                235,
+                82,
+                82,
+                255
+            }
+            :
+            Color{
+                232,
+                232,
+                235,
+                255
+            }
+        );
+
+
+        if (wrongInput)
+        {
+            return;
+        }
+
+
+        const std::string typed =
+            NormalizeTypingText(
+                combat.GetInput()
+            );
+
+
+        if (
+            typed.empty()
+            ||
+            !quillSystem
+                .GetMatchingCommand(
+                    combat.GetInput()
+                )
+                .empty()
+        )
+        {
+            return;
+        }
+
+
+        const std::string target =
+            NormalizeTypingText(
+                fullUpper
+            );
+
+
+        if (
+            typed.size() > target.size()
+            ||
+            target.compare(
+                0,
+                typed.size(),
+                typed
+            )
+            !=
+            0
+        )
+        {
+            return;
+        }
+
+
+        std::size_t visibleCharacters = 0;
+        std::size_t endIndex = 0;
 
 
         while (
-            endIndex
-            <
-            fullUpper.size()
+            endIndex < fullUpper.size()
             &&
-            visibleCharacters
-            <
-            typed.size()
+            visibleCharacters < typed.size()
         )
         {
             const char character =
-                fullUpper[
-                    endIndex
-                ];
+                fullUpper[endIndex];
 
 
             if (
-                (
-                    character >= 'A'
-                    &&
-                    character <= 'Z'
-                )
-                ||
-                (
-                    character >= 'a'
-                    &&
-                    character <= 'z'
-                )
+                character >= 'A'
+                &&
+                character <= 'Z'
             )
             {
                 visibleCharacters++;
@@ -3673,36 +6027,13 @@ namespace
         }
 
 
-        const std::string highlighted =
+        DrawGameText(
             fullUpper.substr(
                 0,
                 endIndex
-            );
-
-
-        constexpr int fontSize =
-            27;
-
-
-        const int fullWidth =
-            MeasureGameText(
-                fullUpper,
-                fontSize
-            );
-
-
-        DrawGameText(
-            highlighted,
-            static_cast<int>(
-                enemy.GetX()
-            )
-            -
-            fullWidth / 2,
-            static_cast<int>(
-                enemy.GetY()
-            )
-            -
-            62,
+            ),
+            textX,
+            textY,
             fontSize,
             Color{
                 255,
@@ -3712,8 +6043,6 @@ namespace
             }
         );
     }
-
-
 
     float GetWorldRestorationProgress()
     {
@@ -3731,247 +6060,58 @@ namespace
     }
 
 
-    void DrawInkBlotCluster(
-        int centerX,
-        int centerY,
-        int radius,
-        unsigned char alpha,
-        int seedOffset
-    )
-    {
-        if (alpha == 0)
-        {
-            return;
-        }
-
-
-        const Color ink =
-        {
-            7,
-            6,
-            9,
-            alpha
-        };
-
-
-        DrawCircle(
-            centerX,
-            centerY,
-            static_cast<float>(
-                radius
-            ),
-            ink
-        );
-
-
-        // Deterministic satellite splashes so the stains do not
-        // flicker or move from frame to frame.
-        for (
-            int index = 0;
-            index < 7;
-            index++
-        )
-        {
-            const int direction =
-                (
-                    index + seedOffset
-                )
-                %
-                8;
-
-
-            const int dxTable[8] =
-            {
-                -10,
-                8,
-                18,
-                22,
-                9,
-                -8,
-                -20,
-                -22
-            };
-
-
-            const int dyTable[8] =
-            {
-                -20,
-                -22,
-                -10,
-                8,
-                21,
-                23,
-                10,
-                -7
-            };
-
-
-            const int distance =
-                radius
-                +
-                5
-                +
-                (
-                    (
-                        index * 11
-                        +
-                        seedOffset * 7
-                    )
-                    %
-                    std::max(
-                        8,
-                        radius
-                    )
-                );
-
-
-            const int satelliteRadius =
-                std::max(
-                    3,
-                    radius / 4
-                    +
-                    (
-                        (
-                            index * 5
-                            +
-                            seedOffset
-                        )
-                        %
-                        std::max(
-                            3,
-                            radius / 4
-                        )
-                    )
-                );
-
-
-            DrawCircle(
-                centerX
-                +
-                dxTable[direction]
-                *
-                distance
-                /
-                24,
-                centerY
-                +
-                dyTable[direction]
-                *
-                distance
-                /
-                24,
-                static_cast<float>(
-                    satelliteRadius
-                ),
-                ink
-            );
-        }
-    }
-
-
-    void DrawRestoringPageBackground()
+    void DrawParchmentPage()
     {
         const int width =
-            GetScreenWidth();
+            GAME_WIDTH;
 
 
         const int height =
-            GetScreenHeight();
+            GAME_HEIGHT;
 
 
-        const float progress =
-            GetWorldRestorationProgress();
-
-
-        // The world genuinely begins in darkness.
+        // Base antique parchment.
         ClearBackground(
-            BLACK
-        );
-
-
-        // The parchment itself slowly fades into existence.
-        // It becomes recognizable early, but does not reach full
-        // brightness until most of the world has been restored.
-        const float parchmentVisibility =
-            std::clamp(
-                progress * 1.45f,
-                0.0f,
-                1.0f
-            );
-
-
-        if (parchmentVisibility <= 0.0f)
-        {
-            return;
-        }
-
-
-        const unsigned char parchmentAlpha =
-            static_cast<unsigned char>(
-                255.0f
-                *
-                parchmentVisibility
-            );
-
-
-        // Warm antique parchment.
-        DrawRectangle(
-            0,
-            0,
-            width,
-            height,
             Color{
-                154,
-                128,
-                82,
-                parchmentAlpha
+                174,
+                145,
+                94,
+                255
             }
         );
 
 
-        // Lighter inner page field.
         const int margin =
             std::max(
                 18,
-                width / 40
+                width / 42
             );
 
 
+        // Slightly lighter center field.
         DrawRectangle(
             margin,
             margin,
             width - margin * 2,
             height - margin * 2,
             Color{
-                188,
-                159,
-                105,
-                static_cast<unsigned char>(
-                    210.0f
-                    *
-                    parchmentVisibility
-                )
+                194,
+                165,
+                109,
+                255
             }
         );
 
 
-        // Dark aged edges.
-        const unsigned char edgeAlpha =
-            static_cast<unsigned char>(
-                115.0f
-                *
-                parchmentVisibility
-            );
-
-
+        // Aged page edges.
         for (
             int layer = 0;
-            layer < 5;
+            layer < 6;
             layer++
         )
         {
             const int inset =
-                layer * 6;
+                layer * 5;
 
 
             DrawRectangleLinesEx(
@@ -3993,35 +6133,22 @@ namespace
                         inset * 2
                     )
                 },
-                6.0f,
+                5.0f,
                 Color{
                     76,
                     52,
                     29,
                     static_cast<unsigned char>(
-                        std::max(
-                            0,
-                            static_cast<int>(
-                                edgeAlpha
-                            )
-                            -
-                            layer * 14
-                        )
+                        100
+                        -
+                        layer * 12
                     )
                 }
             );
         }
 
 
-        // Faint manuscript lines slowly become visible too.
-        const unsigned char lineAlpha =
-            static_cast<unsigned char>(
-                42.0f
-                *
-                parchmentVisibility
-            );
-
-
+        // Faint manuscript ruling.
         const int lineSpacing =
             std::max(
                 32,
@@ -4031,7 +6158,9 @@ namespace
 
         for (
             int y =
-                margin + lineSpacing;
+                margin
+                +
+                lineSpacing;
             y
             <
                 height
@@ -4047,17 +6176,16 @@ namespace
                 width - margin - 18,
                 y,
                 Color{
-                    98,
-                    70,
-                    42,
-                    lineAlpha
+                    103,
+                    74,
+                    43,
+                    38
                 }
             );
         }
 
 
-        // Very subtle center crease so it feels like the inside
-        // of a large open storybook rather than a flat screen.
+        // Very subtle book/page crease.
         DrawRectangle(
             width / 2 - 2,
             margin,
@@ -4067,184 +6195,719 @@ namespace
                 91,
                 61,
                 35,
-                static_cast<unsigned char>(
-                    28.0f
-                    *
-                    parchmentVisibility
-                )
+                24
             }
         );
 
 
-        struct InkStain
+        // Deterministic fibers and age marks.
+        for (
+            int index = 0;
+            index < 34;
+            index++
+        )
         {
-            float xRatio;
-            float yRatio;
-            int radius;
-            int clearsAtWord;
-            int seed;
+            const int x =
+                (
+                    index * 137
+                    +
+                    53
+                )
+                %
+                std::max(
+                    1,
+                    width
+                );
+
+
+            const int y =
+                (
+                    index * 83
+                    +
+                    29
+                )
+                %
+                std::max(
+                    1,
+                    height
+                );
+
+
+            const int radius =
+                1
+                +
+                index % 3;
+
+
+            DrawCircle(
+                x,
+                y,
+                static_cast<float>(
+                    radius
+                ),
+                Color{
+                    105,
+                    74,
+                    42,
+                    22
+                }
+            );
+        }
+    }
+
+
+    void DrawRestoringPageBackground()
+    {
+        const int width =
+            GAME_WIDTH;
+
+
+        const int height =
+            GAME_HEIGHT;
+
+
+        const float progress =
+            GetWorldRestorationProgress();
+
+
+        // Draw the fully restored page first. Darkness is then
+        // layered over it everywhere except the expanding safe
+        // region around the Word Seeker.
+        DrawParchmentPage();
+
+
+        // At zero words there is still a small clear circle around
+        // the player so it immediately reads as "the world exists
+        // beneath the stain."
+        const float minimumRadius =
+            std::max(
+                72.0f,
+                static_cast<float>(
+                    std::min(
+                        width,
+                        height
+                    )
+                )
+                *
+                0.13f
+            );
+
+
+        // Radius needed to reach the farthest corner from player.
+        const float cornerDistances[] =
+        {
+            std::sqrt(
+                static_cast<float>(
+                    playerX * playerX
+                    +
+                    playerY * playerY
+                )
+            ),
+
+            std::sqrt(
+                static_cast<float>(
+                    (
+                        width - playerX
+                    )
+                    *
+                    (
+                        width - playerX
+                    )
+                    +
+                    playerY * playerY
+                )
+            ),
+
+            std::sqrt(
+                static_cast<float>(
+                    playerX * playerX
+                    +
+                    (
+                        height - playerY
+                    )
+                    *
+                    (
+                        height - playerY
+                    )
+                )
+            ),
+
+            std::sqrt(
+                static_cast<float>(
+                    (
+                        width - playerX
+                    )
+                    *
+                    (
+                        width - playerX
+                    )
+                    +
+                    (
+                        height - playerY
+                    )
+                    *
+                    (
+                        height - playerY
+                    )
+                )
+            )
         };
 
 
-        static const InkStain stains[] =
-        {
-            {0.08f, 0.15f, 72, 80, 1},
-            {0.21f, 0.28f, 58, 145, 2},
-            {0.38f, 0.13f, 82, 220, 3},
-            {0.58f, 0.24f, 67, 300, 4},
-            {0.81f, 0.14f, 76, 375, 5},
-            {0.92f, 0.35f, 55, 440, 6},
-            {0.13f, 0.48f, 88, 510, 7},
-            {0.33f, 0.45f, 62, 590, 8},
-            {0.52f, 0.52f, 94, 675, 9},
-            {0.75f, 0.45f, 66, 755, 10},
-            {0.90f, 0.63f, 78, 835, 11},
-            {0.18f, 0.72f, 71, 910, 12},
-            {0.40f, 0.80f, 60, 980, 13},
-            {0.61f, 0.76f, 82, 1040, 14},
-            {0.81f, 0.84f, 65, 1100, 15},
-            {0.52f, 0.92f, 48, 1160, 16}
-        };
+        float maximumRadius =
+            cornerDistances[0];
 
 
         for (
-            const InkStain& stain
+            float distance
             :
-            stains
+            cornerDistances
         )
         {
-            // Each stain remains opaque until the player begins
-            // approaching its threshold, then fades away across
-            // roughly 120 recovered words.
-            constexpr int fadeRange =
-                120;
-
-
-            const int fadeStart =
+            maximumRadius =
                 std::max(
-                    0,
-                    stain.clearsAtWord
-                    -
-                    fadeRange
+                    maximumRadius,
+                    distance
                 );
-
-
-            float stainStrength =
-                1.0f;
-
-
-            if (
-                saveData.wordsRecovered
-                >=
-                stain.clearsAtWord
-            )
-            {
-                stainStrength =
-                    0.0f;
-            }
-
-            else if (
-                saveData.wordsRecovered
-                >
-                fadeStart
-            )
-            {
-                stainStrength =
-                    1.0f
-                    -
-                    static_cast<float>(
-                        saveData.wordsRecovered
-                        -
-                        fadeStart
-                    )
-                    /
-                    static_cast<float>(
-                        stain.clearsAtWord
-                        -
-                        fadeStart
-                    );
-            }
-
-
-            // In the earliest moments the darkness is nearly
-            // complete, so stains blend into the black world.
-            stainStrength =
-                std::clamp(
-                    stainStrength,
-                    0.0f,
-                    1.0f
-                );
-
-
-            DrawInkBlotCluster(
-                static_cast<int>(
-                    width
-                    *
-                    stain.xRatio
-                ),
-                static_cast<int>(
-                    height
-                    *
-                    stain.yRatio
-                ),
-                std::max(
-                    18,
-                    static_cast<int>(
-                        stain.radius
-                        *
-                        (
-                            static_cast<float>(
-                                width
-                            )
-                            /
-                            900.0f
-                        )
-                    )
-                ),
-                static_cast<unsigned char>(
-                    245.0f
-                    *
-                    stainStrength
-                ),
-                stain.seed
-            );
         }
 
 
-        // A thin veil of darkness retreats continuously even
-        // between the large stain thresholds.
-        const unsigned char veilAlpha =
-            static_cast<unsigned char>(
-                205.0f
-                *
-                (
-                    1.0f
-                    -
-                    progress
-                )
-                *
-                (
-                    1.0f
-                    -
-                    progress
-                )
+        // Ease-out growth: visible progress feels rewarding early,
+        // while the last stains linger near the distant edges.
+        const float easedProgress =
+            1.0f
+            -
+            (
+                1.0f - progress
+            )
+            *
+            (
+                1.0f - progress
             );
 
 
-        if (veilAlpha > 0)
+        float clearRadius =
+            minimumRadius
+            +
+            (
+                maximumRadius
+                -
+                minimumRadius
+            )
+            *
+            easedProgress;
+
+
+        if (pageRestorePulse > 0)
         {
-            DrawRectangle(
-                0,
-                0,
-                width,
-                height,
-                Color{
-                    4,
-                    4,
-                    7,
-                    veilAlpha
-                }
+            const float pulseProgress =
+                1.0f
+                -
+                static_cast<float>(
+                    pageRestorePulse
+                )
+                /
+                18.0f;
+
+
+            clearRadius +=
+                std::sin(
+                    pulseProgress
+                    *
+                    PI
+                )
+                *
+                12.0f;
+        }
+
+
+        // Soft transition width between parchment and deep stain.
+        const float featherWidth =
+            std::max(
+                38.0f,
+                static_cast<float>(
+                    std::min(
+                        width,
+                        height
+                    )
+                )
+                *
+                0.075f
             );
+
+
+        // Draw the stain as horizontal strips. Each strip works out
+        // where the expanding circle intersects it, leaving the
+        // parchment underneath visible inside the restored region.
+        //
+        // This avoids the old "random black bubbles" look while
+        // remaining completely procedural and asset-free.
+        constexpr int stripHeight =
+            4;
+
+
+        for (
+            int y = 0;
+            y < height;
+            y += stripHeight
+        )
+        {
+            const float dy =
+                static_cast<float>(
+                    y
+                    -
+                    playerY
+                );
+
+
+            const float absoluteDy =
+                std::fabs(
+                    dy
+                );
+
+
+            // Deep-black outer stain.
+            if (absoluteDy >= clearRadius)
+            {
+                DrawRectangle(
+                    0,
+                    y,
+                    width,
+                    stripHeight,
+                    Color{
+                        4,
+                        4,
+                        7,
+                        248
+                    }
+                );
+
+
+                continue;
+            }
+
+
+            const float halfClearWidth =
+                std::sqrt(
+                    std::max(
+                        0.0f,
+                        clearRadius
+                        *
+                        clearRadius
+                        -
+                        dy
+                        *
+                        dy
+                    )
+                );
+
+
+            const int clearLeft =
+                static_cast<int>(
+                    playerX
+                    -
+                    halfClearWidth
+                );
+
+
+            const int clearRight =
+                static_cast<int>(
+                    playerX
+                    +
+                    halfClearWidth
+                );
+
+
+            if (clearLeft > 0)
+            {
+                DrawRectangle(
+                    0,
+                    y,
+                    clearLeft,
+                    stripHeight,
+                    Color{
+                        4,
+                        4,
+                        7,
+                        248
+                    }
+                );
+            }
+
+
+            if (clearRight < width)
+            {
+                DrawRectangle(
+                    clearRight,
+                    y,
+                    width
+                    -
+                    clearRight,
+                    stripHeight,
+                    Color{
+                        4,
+                        4,
+                        7,
+                        248
+                    }
+                );
+            }
+
+
+            // A second, larger radius produces a soft ink boundary.
+            const float softRadius =
+                clearRadius
+                +
+                featherWidth;
+
+
+            if (absoluteDy < softRadius)
+            {
+                const float halfSoftWidth =
+                    std::sqrt(
+                        std::max(
+                            0.0f,
+                            softRadius
+                            *
+                            softRadius
+                            -
+                            dy
+                            *
+                            dy
+                        )
+                    );
+
+
+                const int softLeft =
+                    static_cast<int>(
+                        playerX
+                        -
+                        halfSoftWidth
+                    );
+
+
+                const int softRight =
+                    static_cast<int>(
+                        playerX
+                        +
+                        halfSoftWidth
+                    );
+
+
+                const int leftFadeStart =
+                    std::max(
+                        0,
+                        softLeft
+                    );
+
+
+                const int leftFadeEnd =
+                    std::max(
+                        0,
+                        clearLeft
+                    );
+
+
+                const int rightFadeStart =
+                    std::min(
+                        width,
+                        clearRight
+                    );
+
+
+                const int rightFadeEnd =
+                    std::min(
+                        width,
+                        softRight
+                    );
+
+
+                if (
+                    leftFadeEnd
+                    >
+                    leftFadeStart
+                )
+                {
+                    const int fadeWidth =
+                        leftFadeEnd
+                        -
+                        leftFadeStart;
+
+
+                    // Several bands make the ink edge appear soft
+                    // rather than mechanically circular.
+                    constexpr int bands =
+                        8;
+
+
+                    for (
+                        int band = 0;
+                        band < bands;
+                        band++
+                    )
+                    {
+                        const float t =
+                            static_cast<float>(
+                                band
+                            )
+                            /
+                            static_cast<float>(
+                                bands
+                            );
+
+
+                        const int bandX =
+                            leftFadeStart
+                            +
+                            static_cast<int>(
+                                fadeWidth * t
+                            );
+
+
+                        const int nextBandX =
+                            leftFadeStart
+                            +
+                            static_cast<int>(
+                                fadeWidth
+                                *
+                                (
+                                    static_cast<float>(
+                                        band + 1
+                                    )
+                                    /
+                                    static_cast<float>(
+                                        bands
+                                    )
+                                )
+                            );
+
+
+                        const unsigned char alpha =
+                            static_cast<unsigned char>(
+                                230.0f
+                                *
+                                (
+                                    1.0f - t
+                                )
+                                *
+                                (
+                                    1.0f - t
+                                )
+                            );
+
+
+                        DrawRectangle(
+                            bandX,
+                            y,
+                            std::max(
+                                1,
+                                nextBandX
+                                -
+                                bandX
+                            ),
+                            stripHeight,
+                            Color{
+                                4,
+                                4,
+                                7,
+                                alpha
+                            }
+                        );
+                    }
+                }
+
+
+                if (
+                    rightFadeEnd
+                    >
+                    rightFadeStart
+                )
+                {
+                    const int fadeWidth =
+                        rightFadeEnd
+                        -
+                        rightFadeStart;
+
+
+                    constexpr int bands =
+                        8;
+
+
+                    for (
+                        int band = 0;
+                        band < bands;
+                        band++
+                    )
+                    {
+                        const float t =
+                            static_cast<float>(
+                                band
+                            )
+                            /
+                            static_cast<float>(
+                                bands
+                            );
+
+
+                        const int bandX =
+                            rightFadeStart
+                            +
+                            static_cast<int>(
+                                fadeWidth * t
+                            );
+
+
+                        const int nextBandX =
+                            rightFadeStart
+                            +
+                            static_cast<int>(
+                                fadeWidth
+                                *
+                                (
+                                    static_cast<float>(
+                                        band + 1
+                                    )
+                                    /
+                                    static_cast<float>(
+                                        bands
+                                    )
+                                )
+                            );
+
+
+                        const unsigned char alpha =
+                            static_cast<unsigned char>(
+                                230.0f
+                                *
+                                t
+                                *
+                                t
+                            );
+
+
+                        DrawRectangle(
+                            bandX,
+                            y,
+                            std::max(
+                                1,
+                                nextBandX
+                                -
+                                bandX
+                            ),
+                            stripHeight,
+                            Color{
+                                4,
+                                4,
+                                7,
+                                alpha
+                            }
+                        );
+                    }
+                }
+            }
+        }
+
+
+        // Add a faint irregular ink edge. These tiny dark patches
+        // sit only near the current restoration frontier and move
+        // outward with it, so they read as a living stain rather
+        // than random dots across the page.
+        if (progress < 0.995f)
+        {
+            for (
+                int index = 0;
+                index < 26;
+                index++
+            )
+            {
+                const float angle =
+                    (
+                        static_cast<float>(
+                            index
+                        )
+                        /
+                        26.0f
+                    )
+                    *
+                    2.0f
+                    *
+                    PI;
+
+
+                const float wobble =
+                    1.0f
+                    +
+                    0.035f
+                    *
+                    std::sin(
+                        angle * 5.0f
+                        +
+                        static_cast<float>(
+                            index % 4
+                        )
+                    );
+
+
+                const float radius =
+                    clearRadius
+                    *
+                    wobble;
+
+
+                const int x =
+                    static_cast<int>(
+                        playerX
+                        +
+                        std::cos(
+                            angle
+                        )
+                        *
+                        radius
+                    );
+
+
+                const int y =
+                    static_cast<int>(
+                        playerY
+                        +
+                        std::sin(
+                            angle
+                        )
+                        *
+                        radius
+                    );
+
+
+                if (
+                    x < -30
+                    ||
+                    x > width + 30
+                    ||
+                    y < -30
+                    ||
+                    y > height + 30
+                )
+                {
+                    continue;
+                }
+
+
+                DrawCircle(
+                    x,
+                    y,
+                    static_cast<float>(
+                        7
+                        +
+                        index % 9
+                    ),
+                    Color{
+                        5,
+                        5,
+                        8,
+                        115
+                    }
+                );
+            }
         }
     }
 
@@ -4330,18 +6993,55 @@ namespace
             );
 
 
-        DrawGameText(
-            progress.c_str(),
-            20,
-            88,
-            22,
-            Color{
-                180,
-                210,
-                240,
-                255
-            }
-        );
+        const int progressFontSize =
+    22;
+
+
+const int progressPaddingX =
+    10;
+
+
+const int progressPaddingY =
+    6;
+
+
+const int progressWidth =
+    MeasureGameText(
+        progress.c_str(),
+        progressFontSize
+    );
+
+
+DrawRectangle(
+    14,
+    82,
+    progressWidth
+    +
+    progressPaddingX * 2,
+    progressFontSize
+    +
+    progressPaddingY * 2,
+    Color{
+        8,
+        8,
+        12,
+        205
+    }
+);
+
+
+DrawGameText(
+    progress.c_str(),
+    20,
+    88,
+    progressFontSize,
+    Color{
+        200,
+        220,
+        240,
+        255
+    }
+);
 
 
         if (
@@ -4362,6 +7062,9 @@ namespace
                     enemy
                 );
             }
+
+
+            DrawWordSparks();
 
 
             std::string typed =
@@ -4412,7 +7115,7 @@ namespace
                 playerX
                 -
                 textWidth / 2,
-                GetScreenHeight()
+                GAME_HEIGHT
                 -
                 45,
                 32,
@@ -4442,79 +7145,14 @@ namespace
         )
         {
             quillSystem.DrawHUD(
-                GetScreenWidth(),
-                GetScreenHeight(),
-                true,
-                combat.GetInput()
-            );
-        }
-
-
-        if (
-            chapterRestoredTimer > 0
-            &&
-            chapterRestoredNumber > 0
-            &&
-            !paused
-            &&
-            !gameOver
-        )
-        {
-            const std::string chapterText =
-                "CHAPTER "
-                +
-                std::to_string(
-                    chapterRestoredNumber
-                )
-                +
-                " RESTORED";
-
-
-            DrawGameText(
-                chapterText,
-                GetScreenWidth() / 2
-                -
-                MeasureGameText(
-                    chapterText,
-                    34
-                )
-                /
-                2,
-                135,
-                34,
-                Color{
-                    255,
-                    225,
-                    120,
-                    255
-                }
-            );
-
-
-            const char* libraryText =
-                "The chapter can now be read in the Library.";
-
-
-            DrawGameText(
-                libraryText,
-                GetScreenWidth() / 2
-                -
-                MeasureGameText(
-                    libraryText,
-                    20
-                )
-                /
-                2,
-                177,
-                20,
-                Color{
-                    205,
-                    205,
-                    210,
-                    255
-                }
-            );
-        }
+             GAME_WIDTH,
+             GAME_HEIGHT,
+             playerX,
+             playerY,
+             true,
+            combat.GetInput()
+        );
+    }
 
 
         if (
@@ -4538,7 +7176,7 @@ namespace
 
             DrawGameText(
                 message,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 width / 2,
                 115,
@@ -4558,8 +7196,8 @@ namespace
             DrawRectangle(
                 0,
                 0,
-                GetScreenWidth(),
-                GetScreenHeight(),
+                GAME_WIDTH,
+                GAME_HEIGHT,
                 Color{
                     0,
                     0,
@@ -4582,7 +7220,7 @@ namespace
 
             DrawGameText(
                 title,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 titleWidth / 2,
                 220,
@@ -4638,7 +7276,7 @@ namespace
 
                 DrawGameText(
                     options[index],
-                    GetScreenWidth() / 2
+                    GAME_WIDTH / 2
                     -
                     width / 2,
                     285
@@ -4656,8 +7294,8 @@ namespace
             DrawRectangle(
                 0,
                 0,
-                GetScreenWidth(),
-                GetScreenHeight(),
+                GAME_WIDTH,
+                GAME_HEIGHT,
                 Color{
                     0,
                     0,
@@ -4680,7 +7318,7 @@ namespace
 
             DrawGameText(
                 title,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 titleWidth / 2,
                 215,
@@ -4736,7 +7374,7 @@ namespace
 
                 DrawGameText(
                     options[index],
-                    GetScreenWidth() / 2
+                    GAME_WIDTH / 2
                     -
                     width / 2,
                     290
@@ -4773,10 +7411,10 @@ namespace
 
             DrawGameText(
                 restored,
-                GetScreenWidth() / 2
+                GAME_WIDTH / 2
                 -
                 width / 2,
-                GetScreenHeight() / 2,
+                GAME_HEIGHT / 2,
                 32,
                 Color{
                     255,
@@ -5178,12 +7816,14 @@ int main()
 {
     SetConfigFlags(
         FLAG_WINDOW_RESIZABLE
+        |
+        FLAG_WINDOW_HIGHDPI
     );
 
 
     InitWindow(
-        900,
-        600,
+        GAME_WIDTH,
+        GAME_HEIGHT,
         "Fantasy Library: Quest of the Word Seeker"
     );
 
@@ -5202,6 +7842,26 @@ int main()
 
 
     InitGameFont();
+
+
+    RenderTexture2D gameCanvas =
+        LoadRenderTexture(
+            GAME_WIDTH,
+            GAME_HEIGHT
+        );
+
+
+    // Smooth the completed 900x600 frame when it is scaled to
+    // non-integer display sizes such as 1200x800 or fullscreen.
+    SetTextureFilter(
+        gameCanvas.texture,
+        TEXTURE_FILTER_BILINEAR
+    );
+
+
+    // Load the shared enemy sprite atlas once after the
+    // raylib window/OpenGL context has been created.
+    EnemySprites::Load();
 
 
     SetTargetFPS(
@@ -5236,6 +7896,10 @@ int main()
         );
 
 
+    SyncVirtualViewport();
+
+    RefreshDisplayGeometry();
+
     ApplyDisplaySetting();
 
 
@@ -5245,6 +7909,9 @@ int main()
         >(
             saveData.recoveredWordIds
         );
+
+
+    SyncVirtualViewport();
 
 
     InitAudioDevice();
@@ -5290,10 +7957,8 @@ int main()
         !WindowShouldClose()
     )
     {
-        if (IsWindowResized())
-        {
-            RefreshDisplayGeometry();
-        }
+        // Window resizing affects only presentation scale.
+        // The logical 900x600 gameplay canvas never changes.
 
 
         if (backgroundMusicLoaded)
@@ -5309,6 +7974,16 @@ int main()
         // -------------------------
 
         if (
+            currentState
+            ==
+            GameState::Splash
+        )
+        {
+            UpdateSplash();
+        }
+
+
+        else if (
             currentState
             ==
             GameState::Menu
@@ -5413,6 +8088,37 @@ int main()
         else if (
             currentState
             ==
+            GameState::ChapterUnlock
+        )
+        {
+            if (
+                chapterUnlockPhase
+                ==
+                ChapterUnlockPhase::Showing
+                &&
+                (
+                    IsKeyPressed(KEY_ENTER)
+                    ||
+                    IsKeyPressed(KEY_SPACE)
+                )
+            )
+            {
+                chapterUnlockPhase =
+                    ChapterUnlockPhase::Opening;
+
+
+                chapterUnlockFrame =
+                    0;
+            }
+
+
+            UpdateChapterUnlock();
+        }
+
+
+        else if (
+            currentState
+            ==
             GameState::FinalBossIntro
         )
         {
@@ -5444,10 +8150,22 @@ int main()
         // DRAW
         // -------------------------
 
-        BeginDrawing();
+        BeginTextureMode(
+            gameCanvas
+        );
 
 
         if (
+            currentState
+            ==
+            GameState::Splash
+        )
+        {
+            DrawSplash();
+        }
+
+
+        else if (
             currentState
             ==
             GameState::Menu
@@ -5505,6 +8223,18 @@ int main()
         else if (
             currentState
             ==
+            GameState::ChapterUnlock
+        )
+        {
+            DrawAdventure();
+
+            DrawBookClosingTransition();
+        }
+
+
+        else if (
+            currentState
+            ==
             GameState::FinalBossIntro
         )
         {
@@ -5531,6 +8261,15 @@ int main()
             DrawEnding();
         }
 
+
+        EndTextureMode();
+
+
+        BeginDrawing();
+
+        DrawVirtualCanvasToWindow(
+            gameCanvas
+        );
 
         EndDrawing();
     }
@@ -5559,6 +8298,14 @@ int main()
 
 
     storyReader.reset();
+
+
+    EnemySprites::Unload();
+
+
+    UnloadRenderTexture(
+        gameCanvas
+    );
 
 
     ShutdownGameFont();

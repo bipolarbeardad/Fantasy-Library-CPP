@@ -19,6 +19,11 @@ public:
 
     int GetMemoryCount() const;
 
+    void SetViewportSize(
+        int width,
+        int height
+    );
+
     int GetNextMemoryIndex(
         int wordsRecovered,
         int memoryStage
@@ -59,6 +64,9 @@ private:
     int librarySelected;
     bool libraryReading;
 
+    int viewportWidth;
+    int viewportHeight;
+
     std::vector<std::string> prologueLines;
 
     const MemoryFragment* GetActiveFragment() const;
@@ -68,12 +76,12 @@ private:
     void DrawQuillReveal() const;
     void DrawSafeEnding() const;
 
-    static void DrawCentered(
+    void DrawCentered(
         const std::string& text,
         int y,
         int fontSize,
         unsigned char r,
         unsigned char g,
         unsigned char b
-    );
+    )const;
 };

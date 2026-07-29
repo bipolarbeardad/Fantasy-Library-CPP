@@ -37,7 +37,7 @@ public:
     ) const;
 
 
-    // New chapter-priority + enemy-difficulty selection.
+    // Chapter-priority + enemy-difficulty selection.
     std::vector<WordRecord> GetWords(
         const std::vector<int>& excludedWordIds,
         EnemyType enemyType
@@ -68,6 +68,8 @@ public:
     ) const;
 
 
+    // Chooses which creature appears based on overall restoration
+    // progress. New creature types are introduced gradually.
     EnemyType GetEnemyType(
         int recoveredCount
     ) const;

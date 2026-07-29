@@ -70,11 +70,13 @@ public:
     ) const;
 
     void DrawHUD(
-        int screenWidth,
-        int screenHeight,
-        bool showQuill,
-        const std::string& typed
-    ) const;
+    int screenWidth,
+    int screenHeight,
+    int playerX,
+    int playerY,
+    bool showQuill,
+    const std::string& typed
+) const;
 
 private:
     bool stunUnlocked;

@@ -12,8 +12,30 @@ MainMenu::MainMenu()
     mode(Mode::Main),
     selected(0),
     displayLabel("900 x 600"),
-    musicVolume(40)
+    musicVolume(40),
+    viewportWidth(900),
+    viewportHeight(600)
 {
+}
+
+
+void MainMenu::SetViewportSize(
+    int width,
+    int height
+)
+{
+    viewportWidth =
+        std::max(
+            1,
+            width
+        );
+
+
+    viewportHeight =
+        std::max(
+            1,
+            height
+        );
 }
 
 
@@ -229,7 +251,7 @@ void MainMenu::DrawCenteredText(
     unsigned char r,
     unsigned char g,
     unsigned char b
-)
+) const
 {
     const int width =
         MeasureGameText(
@@ -240,7 +262,7 @@ void MainMenu::DrawCenteredText(
 
     DrawGameText(
         text.c_str(),
-        GetScreenWidth() / 2
+        viewportWidth / 2
         -
         width / 2,
         y,
@@ -262,7 +284,7 @@ void MainMenu::DrawCenteredScriptText(
     unsigned char r,
     unsigned char g,
     unsigned char b
-)
+) const
 {
     const int width =
         MeasureScriptText(
@@ -273,7 +295,7 @@ void MainMenu::DrawCenteredScriptText(
 
     DrawScriptText(
         text.c_str(),
-        GetScreenWidth() / 2
+        viewportWidth / 2
         -
         width / 2,
         y,
@@ -292,11 +314,11 @@ void MainMenu::DrawTableBackground()
     const
 {
     const int width =
-        GetScreenWidth();
+        viewportWidth;
 
 
     const int height =
-        GetScreenHeight();
+        viewportHeight;
 
 
     ClearBackground(
@@ -735,11 +757,11 @@ void MainMenu::DrawBookCover()
     const
 {
     const int screenWidth =
-        GetScreenWidth();
+        viewportWidth;
 
 
     const int screenHeight =
-        GetScreenHeight();
+        viewportHeight;
 
 
     const int maxBookWidth =
@@ -959,7 +981,7 @@ void MainMenu::DrawMain()
 
 
     const int screenHeight =
-        GetScreenHeight();
+        viewportHeight;
 
 
     // Script title, as though embossed onto the cover.
@@ -994,7 +1016,7 @@ void MainMenu::DrawMain()
 
 
     DrawCenteredScriptText(
-        "The Tale of Bearly",
+        "Bearly: A Sticky Adventure",
         static_cast<int>(
             screenHeight * 0.31f
         ),
@@ -1011,7 +1033,7 @@ void MainMenu::DrawMain()
     const char* options[] =
     {
         "Start Adventure",
-        "Read The Tale of Bearly",
+        "Bearly: A Sticky Adventure",
         "Memories",
         "New Game",
         "Options",
@@ -1063,7 +1085,7 @@ void MainMenu::DrawMain()
             DrawRectangleRounded(
                 Rectangle{
                     static_cast<float>(
-                        GetScreenWidth() / 2
+                        viewportWidth / 2
                         -
                         textWidth / 2
                         -
@@ -1103,6 +1125,70 @@ void MainMenu::DrawMain()
 
         y += spacing;
     }
+
+    const char* creditLineOne =
+        "Credits: Bearly Bipolar Gaming";
+
+    const char* creditLineTwo =
+        "with the assistance of ChatGPT";
+
+
+    const int creditFontSize =
+        std::max(
+            13,
+            screenHeight / 46
+        );
+
+
+    const int creditRight =
+        viewportWidth - 16;
+
+
+    DrawGameText(
+        creditLineOne,
+        creditRight
+        -
+        MeasureGameText(
+            creditLineOne,
+            creditFontSize
+        ),
+        screenHeight
+        -
+        creditFontSize * 2
+        -
+        15,
+        creditFontSize,
+        Color{
+            205,
+            185,
+            145,
+            210
+        }
+    );
+
+
+    DrawGameText(
+        creditLineTwo,
+        creditRight
+        -
+        MeasureGameText(
+            creditLineTwo,
+            creditFontSize
+        ),
+        screenHeight
+        -
+        creditFontSize
+        -
+        9,
+        creditFontSize,
+        Color{
+            185,
+            165,
+            130,
+            190
+        }
+    );
+
 }
 
 
@@ -1113,7 +1199,7 @@ void MainMenu::DrawOptions()
 
 
     const int screenHeight =
-        GetScreenHeight();
+        viewportHeight;
 
 
     DrawCenteredScriptText(
@@ -1199,7 +1285,7 @@ void MainMenu::DrawOptions()
 
     DrawCenteredText(
         "W/S Select   A/D Adjust   Enter Confirm   ESC Back",
-        GetScreenHeight() - 42,
+        viewportHeight - 42,
         18,
         185,
         170,

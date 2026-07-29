@@ -19,6 +19,11 @@ public:
 
     bool IsLoaded() const;
 
+    void SetViewportSize(
+        int width,
+        int height
+    );
+
 
     void SetRecoveredWords(
         const std::vector<int>& recoveredWordIds
@@ -73,6 +78,9 @@ private:
     int pageIndex;
 
     bool loaded;
+
+    int viewportWidth;
+    int viewportHeight;
 
 
     int pageLeft;
@@ -181,7 +189,7 @@ private:
     );
 
 
-    static void DrawCentered(
+    void DrawCentered(
         const std::string& text,
         int y,
         int fontSize,

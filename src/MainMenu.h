@@ -27,6 +27,11 @@ public:
 
     void Draw() const;
 
+    void SetViewportSize(
+        int width,
+        int height
+    );
+
     void SetSettings(
         const std::string& displayLabel,
         int musicVolume
@@ -48,6 +53,9 @@ private:
     std::string displayLabel;
 
     int musicVolume;
+
+    int viewportWidth;
+    int viewportHeight;
 
 
     void MoveSelection(
@@ -78,21 +86,21 @@ private:
     void DrawTableBackground() const;
 
 
-    static void DrawCenteredText(
+    void DrawCenteredText(
         const std::string& text,
         int y,
         int fontSize,
         unsigned char r,
         unsigned char g,
         unsigned char b
-    );
+    )const;
 
-    static void DrawCenteredScriptText(
+    void DrawCenteredScriptText(
         const std::string& text,
         int y,
         int fontSize,
         unsigned char r,
         unsigned char g,
         unsigned char b
-    );
+    )const;
 };

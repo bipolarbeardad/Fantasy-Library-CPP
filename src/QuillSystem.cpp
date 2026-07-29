@@ -1003,164 +1003,295 @@ void QuillSystem::DrawGoldenQuill(
             Color color
         )
         {
-            // Shaft.
+            const Vector2 nibTip =
+            {
+                static_cast<float>(
+                    centerX - 10
+                ),
+                static_cast<float>(
+                    featherBottom + 12
+                )
+            };
+
+
+            const float length =
+                static_cast<float>(
+                    height - 15
+                );
+
+
+            const float angle =
+                -58.0f
+                *
+                DEG2RAD;
+
+
+            const Vector2 direction =
+            {
+                std::cos(
+                    angle
+                ),
+                std::sin(
+                    angle
+                )
+            };
+
+
+            const Vector2 side =
+            {
+                -direction.y,
+                direction.x
+            };
+
+
+            const Vector2 featherTip =
+            {
+                nibTip.x
+                +
+                direction.x
+                *
+                length,
+
+                nibTip.y
+                +
+                direction.y
+                *
+                length
+            };
+
+
             DrawLineEx(
-                Vector2{
-                    static_cast<float>(
-                        centerX - 7
-                    ),
-                    static_cast<float>(
-                        featherBottom + 8
-                    )
-                },
-                Vector2{
-                    static_cast<float>(
-                        centerX + 6
-                    ),
-                    static_cast<float>(
-                        featherTop + 8
-                    )
-                },
-                4.0f,
+                nibTip,
+                featherTip,
+                3.2f,
                 color
             );
 
 
-            // Pointed feather crown.
-            DrawTriangle(
-                Vector2{
-                    static_cast<float>(
-                        centerX + 6
-                    ),
-                    static_cast<float>(
-                        featherTop + 5
-                    )
-                },
-                Vector2{
-                    static_cast<float>(
-                        centerX + 18
-                    ),
-                    static_cast<float>(
-                        featherTop + 18
-                    )
-                },
-                Vector2{
-                    static_cast<float>(
-                        centerX + 3
-                    ),
-                    static_cast<float>(
-                        featherTop + 22
-                    )
-                },
-                color
-            );
+            constexpr int sectionCount =
+                6;
 
 
-            // Feather barbs on both sides.
             for (
                 int index = 0;
-                index < 5;
+                index < sectionCount;
                 index++
             )
             {
-                const float t =
+                const float t0 =
+                    0.28f
+                    +
                     static_cast<float>(
                         index
                     )
                     /
-                    4.0f;
-
-
-                const float shaftX =
                     static_cast<float>(
-                        centerX + 4
+                        sectionCount
                     )
-                    -
-                    t * 8.0f;
-
-
-                const float shaftY =
-                    static_cast<float>(
-                        featherTop + 18
-                    )
-                    +
-                    t
                     *
+                    0.67f;
+
+
+                const float t1 =
+                    0.28f
+                    +
                     static_cast<float>(
-                        featherBottom
-                        -
-                        featherTop
-                        -
-                        18
+                        index + 1
+                    )
+                    /
+                    static_cast<float>(
+                        sectionCount
+                    )
+                    *
+                    0.67f;
+
+
+                const Vector2 center0 =
+                {
+                    nibTip.x
+                    +
+                    direction.x
+                    *
+                    length
+                    *
+                    t0,
+
+                    nibTip.y
+                    +
+                    direction.y
+                    *
+                    length
+                    *
+                    t0
+                };
+
+
+                const Vector2 center1 =
+                {
+                    nibTip.x
+                    +
+                    direction.x
+                    *
+                    length
+                    *
+                    t1,
+
+                    nibTip.y
+                    +
+                    direction.y
+                    *
+                    length
+                    *
+                    t1
+                };
+
+
+                const float taper0 =
+                    std::sin(
+                        t0
+                        *
+                        PI
                     );
 
 
-                const float spread =
-                    18.0f
+                const float taper1 =
+                    std::sin(
+                        t1
+                        *
+                        PI
+                    );
+
+
+                const float width0 =
+                    9.0f
+                    *
+                    taper0;
+
+
+                const float width1 =
+                    9.0f
+                    *
+                    taper1;
+
+
+                const Vector2 left0 =
+                {
+                    center0.x
+                    +
+                    side.x
+                    *
+                    width0,
+
+                    center0.y
+                    +
+                    side.y
+                    *
+                    width0
+                };
+
+
+                const Vector2 left1 =
+                {
+                    center1.x
+                    +
+                    side.x
+                    *
+                    width1,
+
+                    center1.y
+                    +
+                    side.y
+                    *
+                    width1
+                };
+
+
+                const Vector2 right0 =
+                {
+                    center0.x
                     -
-                    t * 6.0f;
+                    side.x
+                    *
+                    width0
+                    *
+                    0.84f,
+
+                    center0.y
+                    -
+                    side.y
+                    *
+                    width0
+                    *
+                    0.84f
+                };
+
+
+                const Vector2 right1 =
+                {
+                    center1.x
+                    -
+                    side.x
+                    *
+                    width1
+                    *
+                    0.84f,
+
+                    center1.y
+                    -
+                    side.y
+                    *
+                    width1
+                    *
+                    0.84f
+                };
 
 
                 DrawTriangle(
-                    Vector2{
-                        shaftX,
-                        shaftY
-                    },
-                    Vector2{
-                        shaftX - spread,
-                        shaftY - 7.0f
-                    },
-                    Vector2{
-                        shaftX - 2.0f,
-                        shaftY + 8.0f
-                    },
+                    center0,
+                    left0,
+                    left1,
                     color
                 );
 
 
                 DrawTriangle(
-                    Vector2{
-                        shaftX,
-                        shaftY - 3.0f
-                    },
-                    Vector2{
-                        shaftX + spread,
-                        shaftY - 10.0f
-                    },
-                    Vector2{
-                        shaftX + 2.0f,
-                        shaftY + 7.0f
-                    },
+                    center0,
+                    left1,
+                    center1,
+                    color
+                );
+
+
+                DrawTriangle(
+                    center0,
+                    center1,
+                    right1,
+                    color
+                );
+
+
+                DrawTriangle(
+                    center0,
+                    right1,
+                    right0,
                     color
                 );
             }
 
 
-            // Writing nib.
+            // Narrow writing nib.
             DrawTriangle(
                 Vector2{
-                    static_cast<float>(
-                        centerX - 11
-                    ),
-                    static_cast<float>(
-                        featherBottom + 10
-                    )
+                    nibTip.x - 3.0f,
+                    nibTip.y + 2.0f
                 },
                 Vector2{
-                    static_cast<float>(
-                        centerX - 3
-                    ),
-                    static_cast<float>(
-                        featherBottom
-                    )
+                    nibTip.x + 3.0f,
+                    nibTip.y - 5.0f
                 },
                 Vector2{
-                    static_cast<float>(
-                        centerX - 9
-                    ),
-                    static_cast<float>(
-                        featherBottom + 17
-                    )
+                    nibTip.x - 1.0f,
+                    nibTip.y + 9.0f
                 },
                 color
             );
@@ -1225,6 +1356,8 @@ void QuillSystem::DrawGoldenQuill(
 void QuillSystem::DrawHUD(
     int screenWidth,
     int screenHeight,
+    int playerX,
+    int playerY,
     bool showQuill,
     const std::string& typed
 ) const
@@ -1239,31 +1372,64 @@ void QuillSystem::DrawHUD(
     }
 
 
-    const int panelWidth = 270;
+    const int panelWidth =
+        205;
 
 
     const int panelHeight =
         rewriteUnlocked
         ?
-        152
+        126
         :
-        112;
+        96;
 
 
-    const int x =
-        screenWidth
-        -
-        panelWidth
-        -
-        14;
+    // Anchor the HUD to the Word Seeker's side of the page.
+    // Because the player sits close to the left edge, centering a
+    // 205px panel under playerX would push it off-screen. Instead,
+    // start just inside the left edge and keep it near the player.
+    int x =
+        std::max(
+            12,
+            playerX - 70
+        );
 
 
-    const int y =
-        screenHeight
-        -
-        panelHeight
-        -
-        14;
+    int y =
+        playerY
+        +
+        62;
+
+
+    // Keep the full panel on-screen at all supported resolutions.
+    x =
+        std::clamp(
+            x,
+            12,
+            std::max(
+                12,
+                screenWidth
+                -
+                panelWidth
+                -
+                12
+            )
+        );
+
+
+    y =
+        std::clamp(
+            y,
+            12,
+            std::max(
+                12,
+                screenHeight
+                -
+                panelHeight
+                -
+                12
+            )
+        );
 
 
     DrawRectangle(
@@ -1275,7 +1441,7 @@ void QuillSystem::DrawHUD(
             12,
             12,
             20,
-            205
+            190
         }
     );
 
@@ -1287,19 +1453,19 @@ void QuillSystem::DrawHUD(
             static_cast<float>(panelWidth),
             static_cast<float>(panelHeight)
         },
-        2.0f,
+        1.5f,
         Color{
             95,
             90,
             105,
-            255
+            225
         }
     );
 
 
     DrawAbilityLine(
-        x + 12,
-        y + 10,
+        x + 10,
+        y + 7,
         "STUN",
         stunUnlocked,
         IsStunReady(),
@@ -1311,8 +1477,8 @@ void QuillSystem::DrawHUD(
     if (stunUnlocked)
     {
         DrawChargePips(
-            x + 205,
-            y + 20,
+            x + 158,
+            y + 17,
             GetStunReadyCharges(),
             GetStunMaxCharges()
         );
@@ -1359,8 +1525,8 @@ void QuillSystem::DrawHUD(
 
 
     DrawAbilityLine(
-        x + 12,
-        y + 36,
+        x + 10,
+        y + 29,
         "FREEZE",
         freezeUnlocked,
         IsFreezeReady(),
@@ -1370,8 +1536,8 @@ void QuillSystem::DrawHUD(
 
 
     DrawAbilityLine(
-        x + 12,
-        y + 62,
+        x + 10,
+        y + 51,
         "ERASE",
         eraseUnlocked,
         IsEraseReady(),
@@ -1395,8 +1561,8 @@ void QuillSystem::DrawHUD(
     if (rewriteUnlocked)
     {
         DrawAbilityLine(
-            x + 12,
-            y + 88,
+            x + 10,
+            y + 73,
             "REWRITE",
             true,
             IsRewriteReady(),
@@ -1414,10 +1580,10 @@ void QuillSystem::DrawHUD(
 
 
         DrawGoldenQuill(
-            x + panelWidth - 62,
-            y + 84,
-            48,
-            58,
+            x + 158,
+            y + 72,
+            38,
+            46,
             IsRewriteReady(),
             GetRewriteChargeRatio()
         );

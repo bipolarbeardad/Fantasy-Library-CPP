@@ -17,7 +17,9 @@ StoryReader::StoryReader(
     :
     chapterIndex(0),
     pageIndex(0),
-    loaded(false)
+    loaded(false),
+    viewportWidth(900),
+    viewportHeight(600)
 {
     SetRecoveredWords(
         recoveredWordIds
@@ -46,6 +48,29 @@ StoryReader::StoryReader(
 }
 
 
+void StoryReader::SetViewportSize(
+    int width,
+    int height
+)
+{
+    viewportWidth =
+        std::max(
+            1,
+            width
+        );
+
+
+    viewportHeight =
+        std::max(
+            1,
+            height
+        );
+
+
+    RecalculateGeometry();
+}
+
+
 bool StoryReader::IsLoaded() const
 {
     return loaded;
@@ -71,11 +96,11 @@ void StoryReader::SetRecoveredWords(
 void StoryReader::RecalculateGeometry()
 {
     const int width =
-        GetScreenWidth();
+        viewportWidth;
 
 
     const int height =
-        GetScreenHeight();
+        viewportHeight;
 
 
     const int horizontalMargin =
@@ -1003,7 +1028,7 @@ void StoryReader::DrawCentered(
 
     DrawGameText(
         text.c_str(),
-        GetScreenWidth() / 2
+        viewportWidth / 2
         -
         width / 2,
         y,
@@ -1216,7 +1241,7 @@ void StoryReader::Draw()
     DrawGameText(
         info.c_str(),
         30,
-        GetScreenHeight() - 25,
+        viewportHeight - 25,
         18,
         Color{
             180,
@@ -1240,12 +1265,12 @@ void StoryReader::Draw()
 
     DrawGameText(
         controls,
-        GetScreenWidth()
+        viewportWidth
         -
         controlsWidth
         -
         30,
-        GetScreenHeight() - 25,
+        viewportHeight - 25,
         18,
         Color{
             180,
